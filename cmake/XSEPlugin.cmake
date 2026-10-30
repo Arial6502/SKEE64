@@ -38,6 +38,7 @@ target_compile_options(
     /utf-8
     /Zc:__cplusplus
     /W3
+    /permissive # SKSE 2.0.20's headers predate the conformance mode C++20 turns on
 )
 
 target_include_directories(

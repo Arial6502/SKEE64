@@ -643,8 +643,14 @@ void SKSEMessageHandler(SKSEMessagingInterface::Message * message)
 	}
 }
 
-bool SKSEPlugin_Query(const SKSEInterface* skse)
+extern "C" __declspec(dllexport) bool SKSEPlugin_Query(const SKSEInterface* skse, PluginInfo* info)
 {
+	// Loading SKEE64 into SKSEVR short circuit immediately
+	if (GET_EXE_VERSION_SUB(skse->runtimeVersion) != 0)
+	{
+		return false;
+	}
+
 	SInt32	logLevel = DebugLog::kLevel_DebugMessage;
 	SKEE64GetConfigValue("Debug", "iLogLevel", &logLevel);
 
@@ -652,12 +658,22 @@ bool SKSEPlugin_Query(const SKSEInterface* skse)
 		gLog.OpenRelative(CSIDL_MYDOCUMENTS, "\\My Games\\Skyrim Special Edition\\SKSE\\skee64.log");
 	gLog.SetLogLevel((DebugLog::LogLevel)logLevel);
 
+	// populate info structure
+	info->infoVersion = PluginInfo::kInfoVersion;
+	info->name = "skee";
+	info->version = 1;
+
 	// store plugin handle so we can identify ourselves later
 	g_pluginHandle = skse->GetPluginHandle();
 
 	if (skse->isEditor)
 	{
 		_MESSAGE("loaded in editor, marking as incompatible");
+		return false;
+	}
+	else if (skse->runtimeVersion != RUNTIME_VERSION_1_5_97)
+	{
+		_FATALERROR("unsupported runtime version %08X", skse->runtimeVersion);
 		return false;
 	}
 
@@ -735,6 +751,22 @@ bool SKSEPlugin_Query(const SKSEInterface* skse)
 extern "C"
 {
 
+// SKSE 2.0.20 loads through SKSEPlugin_Query and doesn't declare this, the layout is what later versions read
+struct SKSEPluginVersionData
+{
+	enum { kVersion = 1 };
+
+	UInt32	dataVersion;
+	UInt32	pluginVersion;
+	char	name[256];
+	char	author[256];
+	char	supportEmail[252];
+	UInt32	versionIndependenceEx;
+	UInt32	versionIndependence;
+	UInt32	compatibleVersions[16];
+	UInt32	seVersionRequired;
+};
+
 __declspec(dllexport) SKSEPluginVersionData SKSEPlugin_Version =
 {
 	SKSEPluginVersionData::kVersion,
@@ -744,15 +776,12 @@ __declspec(dllexport) SKSEPluginVersionData SKSEPlugin_Version =
 	"expired6978@gmail.com",
 	0,	// not version independent
 	0,
-	{ RUNTIME_VERSION_1_6_1170, 0 },
+	{ RUNTIME_VERSION_1_5_97, 0 },
 	0,	// works with any version of the script extender. you probably do not need to put anything here
 };
 
 __declspec(dllexport) bool SKSEPlugin_Load(const SKSEInterface * skse)
 {
-	if (!SKSEPlugin_Query(skse))
-		return false;
-	
 	_DMESSAGE("NetImmerse Override Enabled");
 
 	SKEE64GetConfigValue("Features", "bEnableOverlays", &g_enableOverlays);
