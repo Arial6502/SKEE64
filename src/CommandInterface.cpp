@@ -264,7 +264,7 @@ void CommandInterface::RegisterCommands()
 				{
 					m_mapping[key][morphKey] = value;
 				}
-				std::map<SKEEFixedString, std::map<SKEEFixedString, float>> m_mapping;
+				absl::btree_map<SKEEFixedString, absl::btree_map<SKEEFixedString, float>> m_mapping;
 			};
 			Visitor visitor;
 			g_bodyMorphInterface.VisitMorphValues(thisObj, visitor);

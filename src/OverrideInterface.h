@@ -42,7 +42,7 @@ template<typename T>
 void WriteKey(SKSESerializationInterface * intfc, const T key, UInt32 kVersion);
 
 template<typename T>
-class OverrideRegistration : public std::unordered_map<T, OverrideSet>
+class OverrideRegistration : public absl::node_hash_map<T, OverrideSet>
 {
 public:
 	// Serialization
@@ -52,7 +52,7 @@ public:
 	virtual void Visit(std::function<bool(const T & key, OverrideSet *)> functor);
 };
 
-class AddonRegistration : public std::unordered_map<OverrideHandle, OverrideRegistration<StringTableItem>>
+class AddonRegistration : public absl::node_hash_map<OverrideHandle, OverrideRegistration<StringTableItem>>
 {
 public:
 	// Serialization
@@ -60,7 +60,7 @@ public:
 	bool Load(SKSESerializationInterface * intfc, UInt32 kVersion, const StringIdMap & stringTable);
 };
 
-class ArmorRegistration : public std::unordered_map<OverrideHandle, AddonRegistration>
+class ArmorRegistration : public absl::node_hash_map<OverrideHandle, AddonRegistration>
 {
 public:
 	// Serialization
@@ -68,7 +68,7 @@ public:
 	bool Load(SKSESerializationInterface * intfc, UInt32 kVersion, const StringIdMap & stringTable);
 };
 
-class WeaponRegistration : public std::unordered_map<OverrideHandle, OverrideRegistration<StringTableItem>>
+class WeaponRegistration : public absl::node_hash_map<OverrideHandle, OverrideRegistration<StringTableItem>>
 {
 public:
 	// Serialization
@@ -76,7 +76,7 @@ public:
 	bool Load(SKSESerializationInterface * intfc, UInt32 kVersion, const StringIdMap & stringTable);
 };
 
-class SkinRegistration : public std::unordered_map<OverrideHandle, OverrideSet>
+class SkinRegistration : public absl::node_hash_map<OverrideHandle, OverrideSet>
 {
 public:
 	// Serialization
@@ -176,10 +176,10 @@ public:
 	T table[N];
 };
 
-class ActorRegistrationMapHolder : public SafeDataHolder<std::unordered_map<OverrideHandle, MultiRegistration<ArmorRegistration, 2>>>
+class ActorRegistrationMapHolder : public SafeDataHolder<absl::node_hash_map<OverrideHandle, MultiRegistration<ArmorRegistration, 2>>>
 {
 public:
-	typedef std::unordered_map<OverrideHandle, MultiRegistration<ArmorRegistration, 2>>	RegMap;
+	typedef absl::node_hash_map<OverrideHandle, MultiRegistration<ArmorRegistration, 2>>	RegMap;
 
 	// Serialization
 	void Save(SKSESerializationInterface * intfc, UInt32 kVersion);
@@ -188,10 +188,10 @@ public:
 	friend class OverrideInterface;
 };
 
-class NodeRegistrationMapHolder : public SafeDataHolder<std::unordered_map<OverrideHandle, MultiRegistration<OverrideRegistration<StringTableItem>, 2>>>
+class NodeRegistrationMapHolder : public SafeDataHolder<absl::node_hash_map<OverrideHandle, MultiRegistration<OverrideRegistration<StringTableItem>, 2>>>
 {
 public:
-	typedef std::unordered_map<OverrideHandle, MultiRegistration<OverrideRegistration<StringTableItem>, 2>>	RegMap;
+	typedef absl::node_hash_map<OverrideHandle, MultiRegistration<OverrideRegistration<StringTableItem>, 2>>	RegMap;
 
 	// Serialization
 	void Save(SKSESerializationInterface * intfc, UInt32 kVersion);
@@ -200,10 +200,10 @@ public:
 	friend class OverrideInterface;
 };
 
-class WeaponRegistrationMapHolder : public SafeDataHolder<std::unordered_map<OverrideHandle, MultiRegistration<MultiRegistration<WeaponRegistration, 2>, 2>>>
+class WeaponRegistrationMapHolder : public SafeDataHolder<absl::node_hash_map<OverrideHandle, MultiRegistration<MultiRegistration<WeaponRegistration, 2>, 2>>>
 {
 public:
-	typedef std::unordered_map<OverrideHandle, MultiRegistration<MultiRegistration<WeaponRegistration, 2>, 2>>	RegMap;
+	typedef absl::node_hash_map<OverrideHandle, MultiRegistration<MultiRegistration<WeaponRegistration, 2>, 2>>	RegMap;
 
 	// Serialization
 	void Save(SKSESerializationInterface * intfc, UInt32 kVersion);
@@ -212,10 +212,10 @@ public:
 	friend class OverrideInterface;
 };
 
-class SkinRegistrationMapHolder : public SafeDataHolder<std::unordered_map<OverrideHandle, MultiRegistration<MultiRegistration<SkinRegistration, 2>, 2>>>
+class SkinRegistrationMapHolder : public SafeDataHolder<absl::node_hash_map<OverrideHandle, MultiRegistration<MultiRegistration<SkinRegistration, 2>, 2>>>
 {
 public:
-	typedef std::unordered_map<OverrideHandle, MultiRegistration<MultiRegistration<SkinRegistration, 2>, 2>>	RegMap;
+	typedef absl::node_hash_map<OverrideHandle, MultiRegistration<MultiRegistration<SkinRegistration, 2>, 2>>	RegMap;
 
 	// Serialization
 	void Save(SKSESerializationInterface * intfc, UInt32 kVersion);

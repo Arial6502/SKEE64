@@ -64,7 +64,7 @@ extern bool		g_hideUnusedOverlays;
 extern bool		g_immediateArmor;
 
 
-extern std::unordered_set<void*> g_adjustedBlocks;
+bool IsAdjustedBlock(void* ptr);
 
 skee_u32 OverlayInterface::GetVersion()
 {
@@ -315,7 +315,7 @@ void OverlayInterface::InstallOverlay(const char * nodeName, const char * path, 
 
 			newDynShape->dataSize = sourceShape->dataSize;
 			newDynShape->frameCount = sourceShape->frameCount;
-			if (g_enableFaceOverlays && g_adjustedBlocks.find(sourceShape->pDynamicData) != g_adjustedBlocks.end())
+			if (g_enableFaceOverlays && IsAdjustedBlock(sourceShape->pDynamicData))
 			{
 				void * ptr = reinterpret_cast<void*>((uintptr_t)sourceShape->pDynamicData - 0x10);
 				InterlockedIncrement((uintptr_t*)ptr);

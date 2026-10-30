@@ -98,7 +98,7 @@ void BodyMorphInterface::PrintDiagnostics()
 std::vector<SKEEFixedString> BodyMorphInterface::GetCachedMorphNames()
 {
 	std::vector<SKEEFixedString> morphList;
-	std::unordered_set<SKEEFixedString> morphNames;
+	absl::flat_hash_set<SKEEFixedString> morphNames;
 	morphCache.ForEachMorphFile([&](const SKEEFixedString& filePath, const MorphFileCache& morphFile)
 	{
 		morphFile.ForEachShape([&](const SKEEFixedString& shapeName, const BodyMorphMap& morphMap)
@@ -1297,7 +1297,7 @@ void NIOVTaskUpdateSkinPartition::Run()
 	}
 }
 
-void BodyMorphInterface::Impl_VisitMorphs(TESObjectREFR * actor, std::function<void(SKEEFixedString name, std::unordered_map<StringTableItem, float> * map)> functor)
+void BodyMorphInterface::Impl_VisitMorphs(TESObjectREFR * actor, std::function<void(SKEEFixedString name, absl::flat_hash_map<StringTableItem, float> * map)> functor)
 {
 	auto it = actorMorphs.m_data.find(actor->formID);
 	if (it != actorMorphs.m_data.end())
@@ -1481,7 +1481,7 @@ bool BodyMorphInterface::Impl_ReadBodyMorphTemplates(SKEEFixedString filePath)
 	return true;
 }
 
-void BodyMorphInterface::GetFilteredNPCList(std::vector<TESNPC*> activeNPCs[], const ModInfo * modInfo, UInt32 gender, TESRace * raceFilter, std::unordered_set<TESFaction*> factionList)
+void BodyMorphInterface::GetFilteredNPCList(std::vector<TESNPC*> activeNPCs[], const ModInfo * modInfo, UInt32 gender, TESRace * raceFilter, absl::flat_hash_set<TESFaction*> factionList)
 {
 	for (UInt32 i = 0; i < (*g_dataHandler)->npcs.count; i++)
 	{
@@ -1506,7 +1506,7 @@ void BodyMorphInterface::GetFilteredNPCList(std::vector<TESNPC*> activeNPCs[], c
 	}
 }
 
-bool BodyMorphInterface::IsNPCInFactions(TESNPC* npc, std::unordered_set<TESFaction*> factionList)
+bool BodyMorphInterface::IsNPCInFactions(TESNPC* npc, absl::flat_hash_set<TESFaction*> factionList)
 {
 	UInt32 matchingFactions = 0;
 	if (factionList.size() > 0)
@@ -1554,7 +1554,7 @@ bool BodyMorphInterface::Impl_ReadBodyMorphs(SKEEFixedString filePath)
 			continue;
 		}
 
-		std::unordered_set<TESFaction*> factionList;
+		absl::flat_hash_set<TESFaction*> factionList;
 
 		std::string lSide = std::trim(side[0]);
 		std::vector<std::string> lProperties = std::explode(lSide, ',');
@@ -2140,7 +2140,7 @@ bool BodyMorphData::Load(SKSESerializationInterface * intfc, UInt32 kVersion, co
 						return error;
 					}
 
-					std::unordered_map<StringTableItem, float> pairs;
+					absl::flat_hash_map<StringTableItem, float> pairs;
 					for (UInt32 i = 0; i < numKeys; i++)
 					{
 						auto keyName = StringTable::ReadString(intfc, stringTable);
@@ -2298,7 +2298,7 @@ void BodyMorphInterface::Save(SKSESerializationInterface * intfc, UInt32 kVersio
 	actorMorphs.Save(intfc, kVersion);
 }
 
-bool BodyMorphInterface::Load(SKSESerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable)
+bool BodyMorphInterface::Load(SKSESerializationInterface * intfc, UInt32 kVersion, const absl::flat_hash_map<UInt32, StringTableItem> & stringTable)
 {
 	return actorMorphs.Load(intfc, kVersion, stringTable);
 }

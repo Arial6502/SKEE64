@@ -72,5 +72,5 @@ public:
 
 protected:
 	std::mutex m_attachedLock;
-	std::unordered_set<UInt32> m_attached;
+	absl::flat_hash_set<UInt32> m_attached;
 };

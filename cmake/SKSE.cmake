@@ -49,5 +49,5 @@ target_compile_definitions(
 target_compile_options(skse64_static PRIVATE /W0 /FIcommon/IPrefix.h)
 # SKSE predates C++20 and relies on its implied /permissive- being off.
 set_target_properties(skse64_static PROPERTIES CXX_STANDARD 17)
-# This file defines its own round(), which /MD's dllimport declaration would otherwise turn into a DLL export.
-set_source_files_properties("${skse64_SOURCE_DIR}/skse64/ScaleformExtendedData.cpp" PROPERTIES COMPILE_DEFINITIONS "_ACRTIMP=")
+# This file defines its own round(). /MD's dllimport declaration would turn it into a DLL export, and it clashes with the CRT's.
+set_source_files_properties("${skse64_SOURCE_DIR}/skse64/ScaleformExtendedData.cpp" PROPERTIES COMPILE_DEFINITIONS "_ACRTIMP=;round=skse_round")

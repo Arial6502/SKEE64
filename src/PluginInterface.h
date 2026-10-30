@@ -18,7 +18,7 @@ public:
 
 class InterfaceMap 
 	: public IInterfaceMap
-	, public std::unordered_map<const char*, IPluginInterface*>
+	, public absl::flat_hash_map<const char*, IPluginInterface*>
 {
 public:
 	virtual IPluginInterface * QueryInterface(const char * name) override;

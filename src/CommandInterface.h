@@ -59,5 +59,5 @@ private:
     using lock_type = std::recursive_mutex;
 
     lock_type m_lock;
-    std::unordered_map<std::string, std::unordered_set<CommandData, CommandData, CommandData>, ihash, iequal_to> m_commandMap;
+    absl::node_hash_map<std::string, absl::flat_hash_set<CommandData, CommandData, CommandData>, ihash, iequal_to> m_commandMap;
 };

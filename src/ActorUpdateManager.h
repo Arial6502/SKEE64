@@ -66,19 +66,19 @@ protected:
 	bool m_isNewGame = false;
 	
 	std::recursive_mutex m_lock;
-	std::unordered_set<UInt32> m_bodyUpdates;
-	std::unordered_set<UInt32> m_transformUpdates;
-	std::unordered_set<UInt32> m_overlayUpdates;
+	absl::flat_hash_set<UInt32> m_bodyUpdates;
+	absl::flat_hash_set<UInt32> m_transformUpdates;
+	absl::flat_hash_set<UInt32> m_overlayUpdates;
 
-	std::unordered_set<UInt32> m_overrideNodeUpdates;
-	std::unordered_set<UInt32> m_overrideWeapUpdates;
-	std::unordered_set<UInt32> m_overrideAddonUpdates;
-	std::unordered_set<UInt32> m_overrideSkinUpdates;
+	absl::flat_hash_set<UInt32> m_overrideNodeUpdates;
+	absl::flat_hash_set<UInt32> m_overrideWeapUpdates;
+	absl::flat_hash_set<UInt32> m_overrideAddonUpdates;
+	absl::flat_hash_set<UInt32> m_overrideSkinUpdates;
 	
-	std::unordered_set<NIOVTaskUpdateItemDye*> m_dyeUpdates;
+	absl::flat_hash_set<NIOVTaskUpdateItemDye*> m_dyeUpdates;
 
 private:
-	std::map<std::string, FlushCallback> m_flushObservers;
+	absl::btree_map<std::string, FlushCallback> m_flushObservers;
 	std::vector<IAddonAttachmentInterface*> m_observers;
 };
 

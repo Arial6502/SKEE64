@@ -163,7 +163,7 @@ private:
 	bool	m_resetDiffuse;
 };
 
-class OverlayHolder : public SafeDataHolder<std::unordered_set<UInt32>>
+class OverlayHolder : public SafeDataHolder<absl::flat_hash_set<UInt32>>
 {
 public:
 	void Save(SKSESerializationInterface * intfc, UInt32 kVersion);
@@ -172,7 +172,7 @@ public:
 	friend class OverlayInterface;
 };
 
-class OverlayCallbackHolder : public SafeDataHolder<std::map<std::string, IOverlayInterface::OverlayInstallCallback>>
+class OverlayCallbackHolder : public SafeDataHolder<absl::btree_map<std::string, IOverlayInterface::OverlayInstallCallback>>
 {
 public:
 	friend class OverlayInterface;

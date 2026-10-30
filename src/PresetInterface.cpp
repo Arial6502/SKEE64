@@ -292,7 +292,7 @@ void PresetInterface::ApplyPresetData(Actor* actor, PresetDataPtr presetData, bo
 	}
 }
 
-#include <json/json.h>
+#include "Json.h"
 
 struct PresetHeader
 {
@@ -312,7 +312,6 @@ struct PresetHeader
 
 bool PresetInterface::SaveJsonPreset(const char* filePath, Actor* actor)
 {
-	Json::StyledWriter writer;
 	Json::Value root;
 
 	IFileStream		currentFile;
@@ -337,9 +336,9 @@ bool PresetInterface::SaveJsonPreset(const char* filePath, Actor* actor)
 	if (npc)
 		isFemale = CALL_MEMBER_FN(npc, GetSex)() == 1;
 
-	std::map<UInt8, const char*> modListLegacy;
-	std::set<std::string> modList;
-	std::map<UInt8, BGSHeadPart*> partList;
+	absl::btree_map<UInt8, const char*> modListLegacy;
+	absl::btree_set<std::string> modList;
+	absl::btree_map<UInt8, BGSHeadPart*> partList;
 
 	UInt32 numHeadParts = 0;
 	BGSHeadPart** headParts = nullptr;
@@ -378,7 +377,7 @@ bool PresetInterface::SaveJsonPreset(const char* filePath, Actor* actor)
 		}
 	}
 
-	std::map<UInt8, std::pair<UInt32, const char*>> tintList;
+	absl::btree_map<UInt8, std::pair<UInt32, const char*>> tintList;
 	if (actor == (*g_thePlayer))
 	{
 		for (UInt32 i = 0; i < (*g_thePlayer)->tintMasks.count; i++)
@@ -549,7 +548,7 @@ bool PresetInterface::SaveJsonPreset(const char* filePath, Actor* actor)
 
 	// Collect body morph data
 	PresetData::BodyMorphData bodyMorphData;
-	g_bodyMorphInterface.Impl_VisitMorphs(actor, [&](SKEEFixedString name, std::unordered_map<StringTableItem, float>* map)
+	g_bodyMorphInterface.Impl_VisitMorphs(actor, [&](SKEEFixedString name, absl::flat_hash_map<StringTableItem, float>* map)
 	{
 		for (auto& it : *map)
 		{
@@ -695,7 +694,7 @@ bool PresetInterface::SaveJsonPreset(const char* filePath, Actor* actor)
 	root["morphs"]["sculptDivisor"] = VERTEX_MULTIPLIER;
 	root["morphs"]["sculpt"] = sculptData;
 
-	std::string data = writer.write(root);
+	std::string data = Json::Write(root);
 	currentFile.WriteBuf(data.c_str(), data.length());
 	currentFile.Close();
 	return false;
@@ -727,14 +726,14 @@ bool PresetInterface::SaveBinaryPreset(const char* filePath)
 		TESNPC* npc = DYNAMIC_CAST(player->baseForm, TESForm, TESNPC);
 		DataHandler* dataHandler = DataHandler::GetSingleton();
 
-		typedef std::map<UInt8, const char*> ModMap;
+		typedef absl::btree_map<UInt8, const char*> ModMap;
 		typedef std::pair<UInt8, const char*> ModPair;
 
-		typedef std::map<UInt8, BGSHeadPart*> PartMap;
+		typedef absl::btree_map<UInt8, BGSHeadPart*> PartMap;
 		typedef std::pair<UInt8, BGSHeadPart*> PartPair;
 
 		typedef std::pair<UInt32, const char*> TintCouple;
-		typedef std::map<UInt8, TintCouple> TintMap;
+		typedef absl::btree_map<UInt8, TintCouple> TintMap;
 		typedef std::pair<UInt8, TintCouple> TintPair;
 
 		ModMap modList;
@@ -909,20 +908,14 @@ bool PresetInterface::LoadJsonPreset(const char* filePath, PresetDataPtr presetD
 	std::string in;
 	BSFileUtil::ReadAll(&file, in);
 
-	Json::Features features;
-	features.all();
-
 	Json::Value root;
-	Json::Reader reader(features);
-
-	bool parseSuccess = reader.parse(in, root);
+	bool parseSuccess = Json::Parse(in, root);
 	if (!parseSuccess) {
 		_ERROR("%s: Error occured parsing json for %s.", __FUNCTION__, filePath);
 		loadError = true;
 		return loadError;
 	}
 
-	Json::Value defaultValue;
 	Json::Value version = root["version"];
 	if (version.empty()) {
 		_ERROR("%s: No version header.", __FUNCTION__);
@@ -956,7 +949,7 @@ bool PresetInterface::LoadJsonPreset(const char* filePath, PresetDataPtr presetD
 
 	DataHandler* dataHandler = DataHandler::GetSingleton();
 
-	std::map<UInt32, std::string> modList;
+	absl::btree_map<UInt32, std::string> modList;
 	if (mods.type() == Json::arrayValue) {
 		for (auto& mod : mods) {
 			UInt32 modIndex = mod["index"].asUInt();
@@ -1350,7 +1343,7 @@ bool PresetInterface::LoadBinaryPreset(const char* filePath, PresetDataPtr prese
 
 		DataHandler* dataHandler = DataHandler::GetSingleton();
 
-		typedef std::map<UInt8, std::string> ModMap;
+		typedef absl::btree_map<UInt8, std::string> ModMap;
 		typedef std::pair<UInt8, std::string> ModPair;
 
 		ModMap modList;

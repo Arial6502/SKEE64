@@ -208,7 +208,7 @@ void FormTagInterface::LoadMods()
     }
 }
 
-#include <json/json.h>
+#include "Json.h"
 
 bool FormTagInterface::LoadTagMod(const std::string& path)
 {
@@ -222,13 +222,8 @@ bool FormTagInterface::LoadTagMod(const std::string& path)
     std::string in;
     BSFileUtil::ReadAll(&file, in);
 
-    Json::Features features;
-    features.all();
-
     Json::Value root;
-    Json::Reader reader(features);
-
-    bool parseSuccess = reader.parse(in, root);
+    bool parseSuccess = Json::Parse(in, root);
     if (!parseSuccess) {
         _ERROR("%s: Error occured parsing json for %s.", __FUNCTION__, path.c_str());
         loadError = true;
@@ -280,13 +275,8 @@ bool FormTagInterface::LoadPartTagMod(const std::string& path)
     std::string in;
     BSFileUtil::ReadAll(&file, in);
 
-    Json::Features features;
-    features.all();
-
     Json::Value root;
-    Json::Reader reader(features);
-
-    bool parseSuccess = reader.parse(in, root);
+    bool parseSuccess = Json::Parse(in, root);
     if (!parseSuccess) {
         _ERROR("%s: Error occured parsing json for %s.", __FUNCTION__, path.c_str());
         loadError = true;

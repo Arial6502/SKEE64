@@ -266,7 +266,7 @@ void SKSETaskExportHead::Run()
 	NiPointer<NiNode> skinnedNode = NiNode::Create(0);
 	skinnedNode->m_name = BSFixedString("BSFaceGenNiNodeSkinned").data;
 
-	std::map<NiAVObject*, NiAVObject*> boneMap;
+	absl::btree_map<NiAVObject*, NiAVObject*> boneMap;
 
 	for (UInt32 i = 0; i < faceNode->m_children.m_size; i++)
 	{
@@ -983,7 +983,7 @@ void VisitBipedNodes(TESObjectREFR* refr, std::function<void(bool, UInt32, NiNod
 
 void VisitEquippedNodes(Actor* actor, UInt32 slotMask, std::function<void(TESObjectARMO*, TESObjectARMA*, NiAVObject*, bool)> functor)
 {
-	std::unordered_set<TESObjectARMO*> equippedSlots;
+	absl::flat_hash_set<TESObjectARMO*> equippedSlots;
 	VisitAllWornItems(actor, slotMask, [&](InventoryEntryData* itemData)
 	{
 		TESObjectARMO* armor = itemData->type->formType == TESObjectARMO::kTypeID ? static_cast<TESObjectARMO*>(itemData->type) : nullptr;
@@ -1042,7 +1042,7 @@ void VisitArmorAddon(Actor* actor, TESObjectARMO* armor, TESObjectARMA* arma, st
 
 	BSFixedString addonName(addonString);
 
-	std::unordered_set<NiAVObject*> touched;
+	absl::flat_hash_set<NiAVObject*> touched;
 
 	VisitBipedNodes(actor, [&](bool isFirstPerson, UInt32 slot, NiNode* rootNode, TESForm* bipedArmor, TESForm* bipedArma, NiAVObject* object)
 	{

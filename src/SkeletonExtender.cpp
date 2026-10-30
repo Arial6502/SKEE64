@@ -80,7 +80,7 @@ destroy_stream:
 	return rootNode;
 }
 
-#include <json/json.h>
+#include "Json.h"
 #include <set>
 #include <algorithm>
 #include <iterator>
@@ -92,7 +92,7 @@ extern NiTransformInterface	g_transformInterface;
 
 void SkeletonExtenderInterface::AddTransforms(TESObjectREFR * refr, bool isFirstPerson, NiNode * skeleton, NiAVObject * objectRoot)
 {
-	std::set<SKEEFixedString> current_nodes, previous_nodes, diffs, changes, update;
+	absl::btree_set<SKEEFixedString> current_nodes, previous_nodes, diffs, changes, update;
 
 	UInt8 gender = 0;
 	TESNPC * actorBase = DYNAMIC_CAST(refr->baseForm, TESForm, TESNPC);
@@ -116,13 +116,8 @@ void SkeletonExtenderInterface::AddTransforms(TESObjectREFR * refr, bool isFirst
 		{
 			try
 			{
-				Json::Features features;
-				features.all();
-
 				Json::Value root;
-				Json::Reader reader(features);
-
-				bool parseSuccess = reader.parse(stringData->m_pString, root);
+				bool parseSuccess = Json::Parse(stringData->m_pString, root);
 				if (parseSuccess)
 				{
 					for (auto & objects : root)
@@ -214,17 +209,12 @@ void SkeletonExtenderInterface::AddTransforms(TESObjectREFR * refr, bool isFirst
 	}
 }
 
-void SkeletonExtenderInterface::ReadTransforms(TESObjectREFR * refr, const char * jsonData, bool isFirstPerson, bool isFemale, std::set<SKEEFixedString> & nodes, std::set<SKEEFixedString> & changes)
+void SkeletonExtenderInterface::ReadTransforms(TESObjectREFR * refr, const char * jsonData, bool isFirstPerson, bool isFemale, absl::btree_set<SKEEFixedString> & nodes, absl::btree_set<SKEEFixedString> & changes)
 {
 	try
 	{
-		Json::Features features;
-		features.all();
-
 		Json::Value root;
-		Json::Reader reader(features);
-
-		bool parseSuccess = reader.parse(jsonData, root);
+		bool parseSuccess = Json::Parse(jsonData, root);
 		if (parseSuccess)
 		{
 

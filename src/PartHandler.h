@@ -18,7 +18,7 @@ public:
 	HeadPartList partList;
 };
 
-class PartSet : public std::unordered_map<UInt32, PartEntry>
+class PartSet : public absl::node_hash_map<UInt32, PartEntry>
 {
 public:
 	class Visitor
