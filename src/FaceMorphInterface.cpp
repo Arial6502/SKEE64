@@ -32,6 +32,7 @@
 #include "OverrideVariant.h"
 #include "OverrideInterface.h"
 #include "BodyMorphInterface.h"
+#include "MainThreadTasks.h"
 
 extern StringTable			g_stringTable;
 extern SKSETaskInterface*	g_task;
@@ -1171,7 +1172,7 @@ void FaceMorphInterface::ApplyMorph(TESNPC * npc, BGSHeadPart * headPart, BSFace
 
 	if (g_enableFaceNormalRecalculate)
 	{
-		g_task->AddTask(new SKSETaskApplyMorphNormals(faceNode));
+		MainThreadTasks::Add(new SKSETaskApplyMorphNormals(faceNode));
 	}
 }
 
@@ -1251,7 +1252,7 @@ void FaceMorphInterface::ApplyMorphs(TESNPC * npc, BSFaceGenNiNode * faceNode)
 
 	if (g_enableFaceNormalRecalculate)
 	{
-		g_task->AddTask(new SKSETaskApplyMorphNormals(faceNode));
+		MainThreadTasks::Add(new SKSETaskApplyMorphNormals(faceNode));
 	}
 }
 
@@ -1265,7 +1266,7 @@ void FaceMorphInterface::SetMorph(TESNPC * npc, BSFaceGenNiNode * faceNode, cons
 
 	if (g_enableFaceNormalRecalculate)
 	{
-		g_task->AddTask(new SKSETaskApplyMorphNormals(faceNode, false));
+		MainThreadTasks::Add(new SKSETaskApplyMorphNormals(faceNode, false));
 	}
 }
 
@@ -1760,7 +1761,7 @@ void SKSETaskApplyMorphNormals::Run()
 		}
 
 		NiSkinPartition* newSkinPartition = nullptr;
-		CALL_MEMBER_FN(skinPartition, DeepCopy)((NiObject**)&newSkinPartition);
+		NifUtils::DeepCopy(skinPartition, (NiObject**)&newSkinPartition);
 
 		if (!newSkinPartition) {
 			return false;

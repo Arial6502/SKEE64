@@ -121,6 +121,7 @@ bool VisitGeometry(NiAVObject* parent, std::function<bool(BSGeometry*)> functor)
 namespace NifUtils
 {
 	NiExtraData* GetExtraData(NiObjectNET* object, BSFixedString name);
+	void DeepCopy(NiObject* object, NiObject** result);
 }
 
 

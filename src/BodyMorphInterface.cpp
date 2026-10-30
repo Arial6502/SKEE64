@@ -33,6 +33,7 @@
 #include "skse64/NiRTTI.h"
 
 #include "Morpher.h"
+#include "MainThreadTasks.h"
 
 extern ActorUpdateManager				g_actorUpdateManager;
 extern BodyMorphInterface				g_bodyMorphInterface;
@@ -517,7 +518,7 @@ std::vector<NIOVTaskUpdateSkinPartition*> MorphFileCache::ApplyMorph(TESObjectRE
 					if (skinPartition)
 					{
 						NiSkinPartition* newSkinPartition = nullptr;
-						CALL_MEMBER_FN(skinPartition, DeepCopy)((NiObject**)&newSkinPartition);
+						NifUtils::DeepCopy(skinPartition, (NiObject**)&newSkinPartition);
 
 						// Reset the Vertices directly
 						if (bodyData && newSkinPartition)
@@ -634,7 +635,7 @@ void MorphFileCache::ForEachShape(std::function<void(const SKEEFixedString&, con
 	}
 }
 
-void MorphFileCache::ApplyMorphs(TESObjectREFR * refr, NiAVObject * rootNode, bool isAttaching, bool defer)
+void MorphFileCache::ApplyMorphs(TESObjectREFR * refr, NiAVObject * rootNode, bool isAttaching)
 {
 	using namespace concurrency;
 	using namespace std;
@@ -671,23 +672,38 @@ void MorphFileCache::ApplyMorphs(TESObjectREFR * refr, NiAVObject * rootNode, bo
 		}
 	}
 
-	defer = (*g_main)->threadId != GetCurrentThreadId();
-
 	for (auto update : partitionUpdates)
 	{
-		if (defer)
-		{
-			g_task->AddTask(update);
-		}
-		else
-		{
-			update->Run();
-			update->Dispose();
-		}
+		update->Run();
+		update->Dispose();
 	}
 }
 
+// Morphing rebuilds every shape of an actor, and mods tend to request it many times in a row.
+// Pending requests for the same target collapse into one pass on the main thread.
 void MorphCache::ApplyMorphs(TESObjectREFR * refr, NiAVObject * rootNode, bool isAttaching, bool deferUpdate)
+{
+	if (!refr || !rootNode)
+		return;
+
+	if (!deferUpdate && MainThreadTasks::IsMainThread())
+	{
+		ApplyMorphsNow(refr, rootNode, isAttaching);
+		return;
+	}
+
+	UInt32 formId = refr->formID;
+	NiPointer<NiAVObject> object = rootNode;
+	NiNode * parent = rootNode->m_parent;
+	auto kind = isAttaching ? MainThreadTasks::Kind::ApplyMorphsAttaching : MainThreadTasks::Kind::ApplyMorphs;
+	MainThreadTasks::AddCoalesced(kind, formId, rootNode, [this, formId, refr, object, parent, isAttaching]()
+	{
+		if (LookupFormByID(formId) == refr && object->m_parent == parent)
+			ApplyMorphsNow(refr, object, isAttaching);
+	});
+}
+
+void MorphCache::ApplyMorphsNow(TESObjectREFR * refr, NiAVObject * rootNode, bool isAttaching)
 {
 	SimpleLocker locker(&m_lock);
 
@@ -710,7 +726,7 @@ void MorphCache::ApplyMorphs(TESObjectREFR * refr, NiAVObject * rootNode, bool i
 	});
 
 	if (fileCache && !fileCache->vertexMap.empty())
-		fileCache->ApplyMorphs(refr, rootNode, isAttaching, deferUpdate);
+		fileCache->ApplyMorphs(refr, rootNode, isAttaching);
 
 	Shrink();
 }
@@ -720,13 +736,30 @@ void MorphCache::UpdateMorphs(TESObjectREFR * refr, bool deferUpdate)
 	if(!refr)
 		return;
 
+	if (!deferUpdate && MainThreadTasks::IsMainThread())
+	{
+		UpdateMorphsNow(refr);
+		return;
+	}
+
+	UInt32 formId = refr->formID;
+	MainThreadTasks::AddCoalesced(MainThreadTasks::Kind::UpdateMorphs, formId, nullptr, [this, formId]()
+	{
+		TESForm * form = LookupFormByID(formId);
+		if (TESObjectREFR * current = form ? DYNAMIC_CAST(form, TESForm, TESObjectREFR) : nullptr)
+			UpdateMorphsNow(current);
+	});
+}
+
+void MorphCache::UpdateMorphsNow(TESObjectREFR * refr)
+{
 	Actor * actor = DYNAMIC_CAST(refr, TESObjectREFR, Actor);
 	if (!actor)
 		return;
 
 	VisitBipedNodes(refr, [&](bool isFirstPerson, UInt32 bipedIndex, NiNode* rootNode, TESForm* armo, TESForm* arma, NiAVObject* object)
 	{
-		ApplyMorphs(refr, object, false, deferUpdate);
+		ApplyMorphsNow(refr, object, false);
 	});
 
 	BSFixedString attachmentName(AttachmentInterface::ATTACHMENT_HOLDER);
@@ -735,7 +768,7 @@ void MorphCache::UpdateMorphs(TESObjectREFR * refr, bool deferUpdate)
 		NiAVObject* attachmentNode = rootNode->GetObjectByName(&attachmentName.data);
 		if (attachmentNode)
 		{
-			ApplyMorphs(refr, attachmentNode, false, deferUpdate);
+			ApplyMorphsNow(refr, attachmentNode, false);
 		}
 	});
 }
@@ -765,7 +798,7 @@ void MorphCache::Shrink()
 	SimpleLocker locker(&m_lock);
 	while (totalMemory > memoryLimit && m_data.size() > 0)
 	{
-		auto it = std::min_element(m_data.begin(), m_data.end(), [](std::pair<SKEEFixedString, MorphFileCache> a, std::pair<SKEEFixedString, MorphFileCache> b)
+		auto it = std::min_element(m_data.begin(), m_data.end(), [](const auto & a, const auto & b)
 		{
 			return (a.second.accessed < b.second.accessed);
 		});
@@ -1304,7 +1337,7 @@ void BodyMorphInterface::Impl_UpdateModelWeight(TESObjectREFR * refr, bool immed
 		}
 		else
 		{
-			g_task->AddTask(updateTask);
+			MainThreadTasks::Add(updateTask);
 		}
 	}
 }

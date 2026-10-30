@@ -1,6 +1,7 @@
 #include "ShaderUtilities.h"
 #include "OverrideVariant.h"
 #include "NifUtils.h"
+#include "OverlayInterface.h"
 
 #include "skse64/GameObjects.h"
 
@@ -9,11 +10,17 @@
 #include "skse64/NiProperties.h"
 #include "skse64/NiControllers.h"
 #include "skse64/NiExtraData.h"
+#include "MainThreadTasks.h"
 
 #include <regex>
 #include <algorithm>
 
 extern SKSETaskInterface				* g_task;
+extern bool								g_transformCollisionFix;
+extern OverlayInterface					g_overlayInterface;
+
+// NiUpdateData::Flag::kDisableCollision, SKSE only names kDirty
+static const UInt32 kUpdate_DisableCollision = 1 << 13;
 
 void GetShaderProperty(NiAVObject * node, OverrideVariant * value)
 {
@@ -196,7 +203,7 @@ void NIOVTaskUpdateTexture::Run()
 	}
 }
 
-void SetShaderProperty(NiAVObject * node, OverrideVariant * value, bool immediate)
+static void ApplyShaderProperty(NiAVObject * node, OverrideVariant * value, bool immediate)
 {
 	BSGeometry * geometry = node->GetAsBSGeometry();
 	if(geometry)
@@ -305,7 +312,7 @@ void SetShaderProperty(NiAVObject * node, OverrideVariant * value, bool immediat
 							NIOVTaskUpdateTexture(geometry, value->index, g_stringTable.GetString(texture)).Run();
 						}
 						else {
-							g_task->AddTask(new NIOVTaskUpdateTexture(geometry, value->index, g_stringTable.GetString(texture)));
+							MainThreadTasks::Add(new NIOVTaskUpdateTexture(geometry, value->index, g_stringTable.GetString(texture)));
 						}
 
 					}
@@ -541,11 +548,37 @@ void DumpNodeChildren(NiAVObject * node)
 	}
 }
 
+void SetShaderProperty(NiAVObject * node, OverrideVariant * value, bool immediate)
+{
+	if (!node || node->m_uiRefCount == 0)
+		return;
+
+	if (!MainThreadTasks::IsMainThread())
+	{
+		NiPointer<NiAVObject> object = node;
+		OverrideVariant variant = *value;
+		MainThreadTasks::Add([object, variant, immediate]() mutable
+		{
+			SetShaderProperty(object, &variant, immediate);
+		});
+		return;
+	}
+
+	ApplyShaderProperty(node, value, immediate);
+	g_overlayInterface.QueueVisibilityUpdate(node);
+}
+
 void NIOVTaskUpdateWorldData::Run()
 {
 	NiAVObject::ControllerUpdateContext ctx;
-	ctx.flags = 0;
 	ctx.delta = 0;
+	if (g_transformCollisionFix)
+	{
+		// Moves the nodes without touching their collision, ahead of the full update below
+		ctx.flags = NiAVObject::ControllerUpdateContext::kDirty | kUpdate_DisableCollision;
+		m_object->UpdateWorldData(&ctx);
+	}
+	ctx.flags = 0;
 	m_object->UpdateWorldData(&ctx);
 }
 

@@ -15,6 +15,7 @@
 
 #include "NifUtils.h"
 #include "Utilities.h"
+#include "MainThreadTasks.h"
 
 extern SKSETaskInterface* g_task;
 
@@ -27,6 +28,7 @@ extern bool	g_playerOnly;
 extern bool	g_enableBodyGen;
 extern bool	g_enableAutoTransforms;
 extern bool	g_enableBodyInit;
+extern bool	g_mainThreadTransforms;
 
 EventResult ActorUpdateManager::ReceiveEvent(TESObjectLoadedEvent * evn, EventDispatcher<TESObjectLoadedEvent>* dispatcher)
 {
@@ -96,6 +98,47 @@ EventResult ActorUpdateManager::ReceiveEvent(TESLoadGameEvent* evn, EventDispatc
 	return kEvent_Continue;
 }
 
+static const UInt32 kMaxTransformRetries = 6;
+
+// Actors arriving in a loaded cell don't always have their 3D ready when the attach event fires
+static void SetTransformsWhenLoaded(UInt32 formId, UInt32 attempt = 0)
+{
+	MainThreadTasks::AddDelayed(attempt == 0 ? 1000 : 2000, [=]()
+	{
+		TESForm * form = LookupFormByID(formId);
+		TESObjectREFR * reference = form ? DYNAMIC_CAST(form, TESForm, TESObjectREFR) : nullptr;
+		if (reference && reference->GetNiNode())
+			g_transformInterface.SetTransforms(formId, true);
+		else if (attempt < kMaxTransformRetries)
+			SetTransformsWhenLoaded(formId, attempt + 1);
+	});
+}
+
+void ActorUpdateManager::OnActorAttached(TESObjectREFR * reference)
+{
+	if (!g_mainThreadTransforms || !g_enableAutoTransforms || !reference || reference->formType != Character::kTypeID)
+		return;
+
+	if (m_isReverting)
+		AddTransformUpdate(reference->formID);
+	else
+		SetTransformsWhenLoaded(reference->formID);
+}
+
+EventResult ActorUpdateManager::ReceiveEvent(TESCellAttachDetachEvent * evn, EventDispatcher<TESCellAttachDetachEvent> * dispatcher)
+{
+	if (evn && evn->attached)
+		OnActorAttached(evn->reference);
+	return kEvent_Continue;
+}
+
+EventResult ActorUpdateManager::ReceiveEvent(TESMoveAttachDetachEvent * evn, EventDispatcher<TESMoveAttachDetachEvent> * dispatcher)
+{
+	if (evn && evn->attached)
+		OnActorAttached(evn->reference);
+	return kEvent_Continue;
+}
+
 EventResult ActorUpdateManager::ReceiveEvent(TESCellFullyLoadedEvent* evn, EventDispatcher<TESCellFullyLoadedEvent>* dispatcher)
 {
 	if (m_isNewGame) {
@@ -129,6 +172,21 @@ void ActorUpdateManager::RemoveInterface(IAddonAttachmentInterface* observer)
 
 void ActorUpdateManager::OnAttach(TESObjectREFR * refr, TESObjectARMO * armor, TESObjectARMA * addon, NiAVObject * object, bool isFirstPerson, NiNode * skeleton, NiNode * root)
 {
+	// Armor can attach on the loading threads, the observers all edit the scene graph
+	if (!MainThreadTasks::IsMainThread())
+	{
+		UInt32 formId = refr->formID;
+		NiPointer<NiAVObject> objectRef = object;
+		NiPointer<NiNode> skeletonRef = skeleton;
+		NiPointer<NiNode> rootRef = root;
+		MainThreadTasks::Add([=, this]()
+		{
+			if (LookupFormByID(formId) == refr)
+				OnAttach(refr, armor, addon, objectRef, isFirstPerson, skeletonRef, rootRef);
+		});
+		return;
+	}
+
 	std::lock_guard<std::recursive_mutex> scs(m_lock);
 	for (auto observer : m_observers)
 	{
@@ -211,7 +269,7 @@ bool ActorUpdateManager::UnregisterFlushCallback(const char* key)
 void ActorUpdateManager::Flush()
 {
 	std::lock_guard<std::recursive_mutex> scs(m_lock);
-	g_task->AddTask(new SKSETaskApplyMorphs(*g_thePlayer));
+	MainThreadTasks::Add(new SKSETaskApplyMorphs(*g_thePlayer));
 
 	std::unordered_set<UInt32> flushedSet;
 	std::vector<UInt32> flushedForms;
@@ -296,7 +354,7 @@ void ActorUpdateManager::Flush()
 
 	for (NIOVTaskUpdateItemDye* task : m_dyeUpdates)
 	{
-		g_task->AddTask(task);
+		MainThreadTasks::Add(task);
 		if (flushedSet.count(task->GetActor()) == 0)
 		{
 			flushedSet.emplace(task->GetActor());

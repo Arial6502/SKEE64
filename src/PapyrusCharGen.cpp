@@ -31,6 +31,7 @@
 #include "PresetInterface.h"
 
 #include "FileUtils.h"
+#include "MainThreadTasks.h"
 
 extern FaceMorphInterface g_morphInterface;
 extern bool			g_externalHeads;
@@ -55,7 +56,7 @@ namespace papyrusCharGen
 		g_presetInterface.SaveJsonPreset(slotPath, (*g_thePlayer));
 
 		if(g_enableHeadExport)
-			g_task->AddTask(new SKSETaskExportTintMask(tintPath, fileName.data));
+			MainThreadTasks::Add(new SKSETaskExportTintMask(tintPath, fileName.data));
 	}
 
 	void DeleteCharacter(StaticFunctionTag*, BSFixedString fileName)
@@ -209,7 +210,7 @@ namespace papyrusCharGen
 		g_presetInterface.SaveJsonPreset(slotPath, (*g_thePlayer));
 
 		if(g_enableHeadExport)
-			g_task->AddTask(new SKSETaskExportHead((*g_thePlayer), nifPath, tintPath));
+			MainThreadTasks::Add(new SKSETaskExportHead((*g_thePlayer), nifPath, tintPath));
 	}
 
 	bool LoadExternalCharacterEx(StaticFunctionTag*, Actor * actor, TESRace * race, BSFixedString fileName, UInt32 flags)
@@ -261,7 +262,7 @@ namespace papyrusCharGen
 		CopyFile(sourcePath, destPath, false);
 
 		g_presetInterface.ApplyPreset(actor, race, npc, presetData, (PresetInterface::ApplyTypes)flags);
-		g_task->AddTask(new SKSETaskRefreshTintMask(actor, sourcePath));
+		MainThreadTasks::Add(new SKSETaskRefreshTintMask(actor, sourcePath));
 		return true;
 	}
 
@@ -344,7 +345,7 @@ namespace papyrusCharGen
 			char tintPath[MAX_PATH];
 			sprintf_s(tintPath, "Data\\SKSE\\Plugins\\CharGen\\%s.dds", fileName.data);
 
-			g_task->AddTask(new SKSETaskExportHead((*g_thePlayer), nifPath, tintPath));
+			MainThreadTasks::Add(new SKSETaskExportHead((*g_thePlayer), nifPath, tintPath));
 		}
 	}
 

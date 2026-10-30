@@ -39,6 +39,7 @@ bool CommandInterface::ExecuteCommand(const char* command, TESObjectREFR* ref, c
 #include "NifUtils.h"
 #include "ShaderUtilities.h"
 #include "common/IFileStream.h"
+#include "MainThreadTasks.h"
 
 extern SKSETaskInterface*	g_task;
 extern ItemDataInterface	g_itemDataInterface;
@@ -109,7 +110,7 @@ void CommandInterface::RegisterCommands()
 			}
 
 			g_morphInterface.EraseSculptData(npc);
-			g_task->AddTask(new SKSEUpdateFaceModel(actor));
+			MainThreadTasks::Add(new SKSEUpdateFaceModel(actor));
 
 			Console_Print("Erased all sculpting");
 			return true;
@@ -160,7 +161,7 @@ void CommandInterface::RegisterCommands()
 
 		g_presetInterface.SaveJsonPreset(slotPath, actor);
 
-		g_task->AddTask(new SKSETaskExportTintMask(tintPath, argument));
+		MainThreadTasks::Add(new SKSETaskExportTintMask(tintPath, argument));
 		Console_Print("Preset saved");
 		return true;
 	});
@@ -210,7 +211,7 @@ void CommandInterface::RegisterCommands()
 			return true;
 		}
 
-		g_task->AddTask(new SKSEAttachSkinnedMesh(static_cast<Actor*>(thisObj), argument, "TestRoot", false, true, std::vector<BSFixedString>()));
+		MainThreadTasks::Add(new SKSEAttachSkinnedMesh(static_cast<Actor*>(thisObj), argument, "TestRoot", false, true, std::vector<BSFixedString>()));
 		return true;
 	});
 #endif
@@ -338,7 +339,7 @@ void CommandInterface::RegisterCommands()
 			{
 				IItemDataInterface::Identifier identifier;
 				identifier.SetSlotMask(mask);
-				g_task->AddTask(new NIOVTaskUpdateItemDye(thisObj ? static_cast<Actor*>(thisObj) : (*g_thePlayer), identifier, TintMaskInterface::kUpdate_All, true, [mask](TESObjectARMO* armo, TESObjectARMA* arma, const char* path, NiTexturePtr texture, LayerTarget& layer)
+				MainThreadTasks::Add(new NIOVTaskUpdateItemDye(thisObj ? static_cast<Actor*>(thisObj) : (*g_thePlayer), identifier, TintMaskInterface::kUpdate_All, true, [mask](TESObjectARMO* armo, TESObjectARMA* arma, const char* path, NiTexturePtr texture, LayerTarget& layer)
 				{
 					char texturePath[MAX_PATH];
 					_snprintf_s(texturePath, MAX_PATH, "Data\\SKSE\\Plugins\\NiOverride\\Exported\\TintMasks\\%s", path);

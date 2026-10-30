@@ -11,6 +11,7 @@
 #include "skse64/NiGeometry.h"
 
 #include "NifUtils.h"
+#include "MainThreadTasks.h"
 
 extern SKSETaskInterface* g_task;
 extern AttachmentInterface	g_attachmentInterface;
@@ -126,7 +127,7 @@ void AttachmentInterface::Revert()
 		m_attachedLock.lock();
 		for (auto& formId : m_attached)
 		{
-			g_task->AddTask(new SKSEDetachAllSkinnedMeshes(formId));
+			MainThreadTasks::Add(new SKSEDetachAllSkinnedMeshes(formId));
 		}
 		m_attachedLock.unlock();
 	}

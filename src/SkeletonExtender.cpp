@@ -11,6 +11,10 @@
 #include "skse64/GameStreams.h"
 
 extern bool	g_enableEquippableTransforms;
+extern bool	g_mainThreadTransforms;
+
+static const UInt32 kMaxAttachRetries = 6;
+static const UInt32 kAttachRetryDelay = 2000;
 
 void SkeletonExtenderInterface::Attach(TESObjectREFR * refr, NiNode * skeleton, NiAVObject * objectRoot)
 {
@@ -82,6 +86,7 @@ destroy_stream:
 #include <iterator>
 #include "NiTransformInterface.h"
 #include "skse64/GameRTTI.h"
+#include "MainThreadTasks.h"
 
 extern NiTransformInterface	g_transformInterface;
 
@@ -311,8 +316,40 @@ void SkeletonExtenderInterface::ReadTransforms(TESObjectREFR * refr, const char 
 	}
 }
 
+// Actors can attach armor before their 3D is set, the transforms would then be lost
+void SkeletonExtenderInterface::AttachWhenLoaded(UInt32 attempt, UInt32 formId, TESObjectREFR * refr, bool isFirstPerson, NiPointer<NiNode> skeleton, NiPointer<NiNode> root, NiPointer<NiAVObject> object)
+{
+	auto task = [=, this]()
+	{
+		if (LookupFormByID(formId) != refr)
+			return;
+
+		if (refr->GetNiNode())
+		{
+			Attach(refr, root, object);
+			if (g_enableEquippableTransforms)
+				AddTransforms(refr, isFirstPerson, skeleton, object);
+		}
+		else if (attempt < kMaxAttachRetries)
+		{
+			AttachWhenLoaded(attempt + 1, formId, refr, isFirstPerson, skeleton, root, object);
+		}
+	};
+
+	if (attempt == 0)
+		MainThreadTasks::Add(task);
+	else
+		MainThreadTasks::AddDelayed(kAttachRetryDelay, task);
+}
+
 void SkeletonExtenderInterface::OnAttach(TESObjectREFR * refr, TESObjectARMO * armor, TESObjectARMA * addon, NiAVObject * object, bool isFirstPerson, NiNode * skeleton, NiNode * root)
 {
+	if (g_mainThreadTransforms && !refr->GetNiNode())
+	{
+		AttachWhenLoaded(0, refr->formID, refr, isFirstPerson, skeleton, root, object);
+		return;
+	}
+
 	Attach(refr, root, object);
 
 	if (g_enableEquippableTransforms)

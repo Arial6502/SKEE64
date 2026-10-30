@@ -10,6 +10,7 @@ class NiStringExtraData;
 #include "skse64\GameTypes.h"
 #include "StringTable.h"
 #include "IPluginInterface.h"
+#include "skse64/NiTypes.h"
 
 class SkeletonExtenderInterface : public IAddonAttachmentInterface
 {
@@ -18,6 +19,8 @@ public:
 	NiNode * LoadTemplate(NiNode * parent, const char * path);
 	void AddTransforms(TESObjectREFR * refr, bool isFirstPerson, NiNode * skeleton, NiAVObject * objectRoot);
 	void ReadTransforms(TESObjectREFR * refr, const char * jsonData, bool isFirstPerson, bool isFemale, std::set<SKEEFixedString> & nodes, std::set<SKEEFixedString> & changes);
+
+	void AttachWhenLoaded(UInt32 attempt, UInt32 formId, TESObjectREFR * refr, bool isFirstPerson, NiPointer<NiNode> skeleton, NiPointer<NiNode> root, NiPointer<NiAVObject> object);
 
 	// Inherited via IAddonAttachmentInterface
 	virtual void OnAttach(TESObjectREFR * refr, TESObjectARMO * armor, TESObjectARMA * addon, NiAVObject * object, bool isFirstPerson, NiNode * skeleton, NiNode * root) override;

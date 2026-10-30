@@ -18,6 +18,7 @@
 #include "ShaderUtilities.h"
 #include "FileUtils.h"
 #include "NifUtils.h"
+#include "MainThreadTasks.h"
 
 extern OverrideInterface	g_overrideInterface;
 extern NiTransformInterface g_transformInterface;
@@ -1270,7 +1271,7 @@ bool PresetInterface::SavePreset(const char* filePath, const char* tintPath, Act
 			auto dir = path.substr(0, idx + 1);
 			auto file = path.substr(idx + 1);
 			
-			g_task->AddTask(new SKSETaskExportTintMask(dir.c_str(), file.c_str()));
+			MainThreadTasks::Add(new SKSETaskExportTintMask(dir.c_str(), file.c_str()));
 		}
 	}
 
