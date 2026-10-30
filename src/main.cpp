@@ -56,6 +56,9 @@
 
 DebugLog	gLog;
 
+// SKSE's offset comments run one entry ahead from unk2C0 on, this field is TESMoveAttachDetachEvent
+STATIC_ASSERT(offsetof(EventDispatcherList, unk840) == 0x7E8);
+
 PluginHandle					g_pluginHandle = kPluginHandle_Invalid;
 
 // Interfaces
@@ -131,6 +134,12 @@ bool	g_overlayAlphaOverride = true;
 UInt16	g_overlayAlphaFlags = 4845;
 UInt16	g_overlayAlphaThreshold = 0;
 bool	g_overlayForceDecal = true;
+bool	g_legacyOverlayOrder = true;
+bool	g_hideUnusedOverlays = false;
+bool	g_mainThreadTransforms = true;
+bool	g_transformCollisionFix = true;
+bool	g_skipCoSaveLoad = false;
+bool	g_skipStackCleanup = false;
 
 
 bool	g_enableBodyInit = true;
@@ -410,9 +419,12 @@ void SKEE64Serialization_Load(SKSESerializationInterface * intfc)
 
 	std::unordered_map<UInt32, StringTableItem> stringTable;
 
+	if (g_skipCoSaveLoad)
+		_WARNING("%s - bSkipCoSaveLoad is set, ignoring all SKEE data in this save", __FUNCTION__);
+
 	StopWatch sw;
 	sw.Start();
-	while (intfc->GetNextRecordInfo(&type, &version, &length))
+	while (!g_skipCoSaveLoad && intfc->GetNextRecordInfo(&type, &version, &length))
 	{
 		switch (type)
 		{
@@ -610,6 +622,8 @@ void SKSEMessageHandler(SKSEMessagingInterface::Message * message)
 			GetEventDispatcherList()->uniqueIdChangeDispatcher.AddEventSink(&g_itemDataInterface);
 			GetEventDispatcherList()->loadGameEventDispatcher.AddEventSink(&g_actorUpdateManager);
 			GetEventDispatcherList()->unk210.AddEventSink(&g_actorUpdateManager);
+			GetEventDispatcherList()->unk1B8.AddEventSink(&g_actorUpdateManager);
+			reinterpret_cast<EventDispatcher<TESMoveAttachDetachEvent>*>(&GetEventDispatcherList()->unk840)->AddEventSink(&g_actorUpdateManager);
 
 			g_tintMaskInterface.LoadMods();
 			g_morphInterface.LoadMods();
@@ -775,6 +789,12 @@ __declspec(dllexport) bool SKSEPlugin_Load(const SKSEInterface * skse)
 	SKEE64GetConfigValue("Overlays/Data", "iAlphaFlags", &g_overlayAlphaFlags);
 	SKEE64GetConfigValue("Overlays/Data", "iAlphaThreshold", &g_overlayAlphaThreshold);
 	SKEE64GetConfigValue("Overlays/Data", "bForceDecal", &g_overlayForceDecal);
+	SKEE64GetConfigValue("Overlays/Data", "bLegacyOverlayOrder", &g_legacyOverlayOrder);
+	SKEE64GetConfigValue("Overlays/Data", "bHideUnusedOverlays", &g_hideUnusedOverlays);
+	SKEE64GetConfigValue("Features", "bMainThreadTransforms", &g_mainThreadTransforms);
+	SKEE64GetConfigValue("Features", "bTransformCollisionFix", &g_transformCollisionFix);
+	SKEE64GetConfigValue("Recovery", "bSkipCoSaveLoad", &g_skipCoSaveLoad);
+	SKEE64GetConfigValue("Recovery", "bSkipStackCleanup", &g_skipStackCleanup);
 
 
 	std::string defaultTexture = GetConfigOption("Overlays/Data", "sDefaultTexture");

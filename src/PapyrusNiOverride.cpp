@@ -23,6 +23,7 @@
 #include "ShaderUtilities.h"
 #include "NifUtils.h"
 #include "Utilities.h"
+#include "MainThreadTasks.h"
 
 extern SKSETaskInterface*	g_task;
 extern SKSEObjectInterface* g_objectInterface;
@@ -999,7 +1000,7 @@ namespace papyrusNiOverride
 		if (Actor * actor = DYNAMIC_CAST(refr, TESForm, Actor)) {
 			IItemDataInterface::Identifier identifier;
 			identifier.SetRankID(uniqueID);
-			g_task->AddTask(new NIOVTaskUpdateItemDye(actor, identifier, TintMaskInterface::kUpdate_All, false));
+			MainThreadTasks::Add(new NIOVTaskUpdateItemDye(actor, identifier, TintMaskInterface::kUpdate_All, false));
 		}
 	}
 

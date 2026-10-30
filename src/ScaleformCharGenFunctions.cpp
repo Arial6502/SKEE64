@@ -61,6 +61,7 @@ extern SKSETaskInterface * g_task;
 #include "CDXNifCommands.h"
 #include "CDXShaderFactory.h"
 #include "CDXBSShaderResource.h"
+#include "MainThreadTasks.h"
 
 UInt32 colors[] = {
 	0xffffff, 0xff0000, 0x0000ff, 0x00ff00,
@@ -647,7 +648,7 @@ void SKSEScaleform_ExportHead::Invoke(Args * args)
 	ddsPath.append(".dds");
 
 	if(g_enableHeadExport)
-		g_task->AddTask(new SKSETaskExportHead(actor, nifPath.c_str(), ddsPath.c_str()));
+		MainThreadTasks::Add(new SKSETaskExportHead(actor, nifPath.c_str(), ddsPath.c_str()));
 }
 
 void SKSEScaleform_ImportHead::Invoke(Args * args)

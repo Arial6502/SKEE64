@@ -208,7 +208,7 @@ class MorphFileCache
 	friend class MorphCache;
 	friend class BodyMorphInterface;
 public:
-	void ApplyMorphs(TESObjectREFR * refr, NiAVObject * rootNode, bool erase = false, bool defer = false);
+	void ApplyMorphs(TESObjectREFR * refr, NiAVObject * rootNode, bool erase = false);
 	std::vector<NIOVTaskUpdateSkinPartition*> ApplyMorph(TESObjectREFR * refr, NiAVObject * rootNode, bool erase, const std::pair<SKEEFixedString, BodyMorphMap> & bodyMorph);
 	void ForEachShape(std::function<void(const SKEEFixedString&, const BodyMorphMap&)> functor) const;
 
@@ -246,6 +246,9 @@ public:
 	size_t Clear();
 
 private:
+	void ApplyMorphsNow(TESObjectREFR * refr, NiAVObject * rootNode, bool attaching);
+	void UpdateMorphsNow(TESObjectREFR * refr);
+
 	size_t memoryLimit;
 	size_t totalMemory;
 };

@@ -24,11 +24,14 @@
 #include "ShaderUtilities.h"
 #include "NifUtils.h"
 #include "Utilities.h"
+#include "MainThreadTasks.h"
 
 #include <unordered_set>
 #include <format>
 
-// NiAVObject::Flag::kAlwaysDraw, only named by SKSE 2.3 and later
+// NiAVObject::Flag, only named by SKSE 2.3 and later
+static const UInt32						kNiAVObjectFlag_Hidden = 1 << 0;
+static const UInt32						kNiAVObjectFlag_DisableSorting = 1 << 6;
 static const UInt32						kNiAVObjectFlag_AlwaysDraw = 1 << 11;
 
 extern ActorUpdateManager				g_actorUpdateManager;
@@ -55,6 +58,8 @@ extern bool		g_overlayAlphaOverride;
 extern UInt16	g_overlayAlphaFlags;
 extern UInt16	g_overlayAlphaThreshold;
 extern bool		g_overlayForceDecal;
+extern bool		g_legacyOverlayOrder;
+extern bool		g_hideUnusedOverlays;
 
 extern bool		g_immediateArmor;
 
@@ -89,8 +94,131 @@ void OverlayInterface::UninstallOverlay(const char * nodeName, TESObjectREFR * r
 	}
 }
 
+struct OverlayName
+{
+	bool	isSpell;
+	UInt32	index;
+};
+
+// Overlay nodes are named "<part> [Ovl<index>]" or "<part> [SOvl<index>]"
+static bool ParseOverlayName(const char * name, OverlayName & result)
+{
+	if (!name)
+		return false;
+
+	const char * tag = strstr(name, "[Ovl");
+	result.isSpell = !tag;
+	if (!tag)
+		tag = strstr(name, "[SOvl");
+	if (!tag)
+		return false;
+
+	result.index = strtoul(tag + (result.isSpell ? 5 : 4), nullptr, 10);
+	return true;
+}
+
+// The last overlay used to draw on top. Since bForceDecal the first one does, and mods still expect
+// the original priority, so overlays are put in reverse order within the child slots they occupy.
+static void SortOverlays(NiNode * parent)
+{
+	struct Overlay
+	{
+		OverlayName				name;
+		NiPointer<NiAVObject>	object;
+	};
+
+	std::vector<UInt32> slots;
+	std::vector<Overlay> overlays;
+	for (UInt32 i = 0; i < parent->m_children.m_emptyRunStart; i++)
+	{
+		NiAVObject * child = parent->m_children.m_data[i];
+		OverlayName name;
+		if (child && ParseOverlayName(child->m_name, name))
+		{
+			slots.push_back(i);
+			overlays.push_back({ name, child });
+		}
+	}
+
+	std::stable_sort(overlays.begin(), overlays.end(), [](const Overlay & a, const Overlay & b)
+	{
+		if (a.name.isSpell != b.name.isSpell)
+			return a.name.isSpell;
+		return a.name.index > b.name.index;
+	});
+
+	bool sorted = true;
+	for (size_t i = 0; i < overlays.size() && sorted; i++)
+		sorted = parent->m_children.m_data[slots[i]] == overlays[i].object.get();
+
+	if (sorted)
+		return;
+
+	for (UInt32 slot : slots)
+		parent->RemoveAt(slot);
+
+	// SKSE names this slot DetachChild, it is NiNode::InsertChildAt
+	for (size_t i = 0; i < overlays.size(); i++)
+		parent->DetachChild(slots[i], overlays[i].object);
+}
+
+static void UpdateOverlayVisibility(NiAVObject * object)
+{
+	BSGeometry * geometry = object->GetAsBSGeometry();
+	BSLightingShaderProperty * shader = geometry ? ni_cast(geometry->m_spEffectState, BSLightingShaderProperty) : nullptr;
+	if (!shader || !shader->material)
+		return;
+
+	BSLightingShaderMaterial * material = (BSLightingShaderMaterial *)shader->material;
+	bool unused = material->alpha < 0.0001f;
+	if (!unused && material->textureSet)
+	{
+		std::string diffuse = material->textureSet->GetTexturePath(0);
+		std::transform(diffuse.begin(), diffuse.end(), diffuse.begin(), ::tolower);
+		unused = diffuse.ends_with("\\default.dds") || diffuse.ends_with("\\blank.dds");
+	}
+
+	if (unused)
+	{
+		geometry->m_flags &= ~kNiAVObjectFlag_AlwaysDraw;
+		geometry->m_flags |= kNiAVObjectFlag_Hidden | kNiAVObjectFlag_DisableSorting;
+	}
+	else
+	{
+		geometry->m_flags |= kNiAVObjectFlag_AlwaysDraw;
+		geometry->m_flags &= ~(kNiAVObjectFlag_Hidden | kNiAVObjectFlag_DisableSorting);
+	}
+}
+
+void OverlayInterface::QueueVisibilityUpdate(NiAVObject * node)
+{
+	OverlayName name;
+	if (!g_hideUnusedOverlays || !ParseOverlayName(node->m_name, name))
+		return;
+
+	NiPointer<NiAVObject> object = node;
+	MainThreadTasks::AddCoalesced(MainThreadTasks::Kind::OverlayVisibility, 0, node, [object]()
+	{
+		UpdateOverlayVisibility(object);
+	});
+}
+
+static NiAVObject * GetTopParent(NiAVObject * object)
+{
+	while (object->m_parent)
+		object = object->m_parent;
+	return object;
+}
+
 void OverlayInterface::InstallOverlay(const char * nodeName, const char * path, TESObjectREFR * refr, BSGeometry * source, NiNode * destination, BGSTextureSet * textureSet)
 {
+	// The armor or head may have been swapped out since this was requested
+	if (!refr || !source || !destination || source->m_uiRefCount == 0 || destination->m_uiRefCount == 0 || GetTopParent(source) != GetTopParent(destination))
+	{
+		_DMESSAGE("%s - Skipping %s, source geometry is no longer part of the skeleton", __FUNCTION__, nodeName);
+		return;
+	}
+
 	NiNode * rootNode = NULL;
 	NiAVObjectPtr newShape;
 	NiPropertyPtr alphaProperty;
@@ -99,6 +227,22 @@ void OverlayInterface::InstallOverlay(const char * nodeName, const char * path, 
 	NiAVObject * foundGeometry = destination->GetObjectByName(&overlayName.data);
 	if (foundGeometry)
 		newShape = foundGeometry->GetAsBSGeometry();
+
+	// A shape left over from different geometry has the wrong layout for the casts below
+	BSGeometry * existingShape = newShape ? newShape->GetAsBSGeometry() : nullptr;
+	if (existingShape && existingShape->shapeType != source->shapeType)
+	{
+		_MESSAGE("%s - Replacing %s, its geometry type no longer matches the source", __FUNCTION__, nodeName);
+		newShape = nullptr;
+		while (foundGeometry && foundGeometry->m_parent)
+		{
+			if (BSGeometry * staleShape = foundGeometry->GetAsBSGeometry())
+				staleShape->m_spSkinInstance = nullptr;
+
+			foundGeometry->m_parent->RemoveChild(foundGeometry);
+			foundGeometry = destination->GetObjectByName(&overlayName.data);
+		}
+	}
 
 	bool attachNew = false;
 	if(!newShape)
@@ -149,7 +293,6 @@ void OverlayInterface::InstallOverlay(const char * nodeName, const char * path, 
 
 		if (newShape) {
 			newShape->m_name = overlayName.data;
-			newShape->m_flags |= kNiAVObjectFlag_AlwaysDraw;
 		}
 	}
 	
@@ -157,6 +300,7 @@ void OverlayInterface::InstallOverlay(const char * nodeName, const char * path, 
 	BSGeometry * targetShape = newShape->GetAsBSGeometry();
 	if(targetShape)
 	{
+		targetShape->m_flags |= kNiAVObjectFlag_AlwaysDraw;
 		targetShape->vertexDesc = source->vertexDesc;
 
 		if (shaderProperty)
@@ -260,10 +404,14 @@ void OverlayInterface::InstallOverlay(const char * nodeName, const char * path, 
 
 		if(attachNew) {
 			destination->AttachChild(newShape, false);
+			if (g_legacyOverlayOrder)
+				SortOverlays(destination);
 #ifdef _DEBUG
 			_DMESSAGE("%s - Successfully installed overlay %s to actor: %08X", __FUNCTION__, newShape->m_name, refr->formID);
 #endif
 		}
+
+		QueueVisibilityUpdate(newShape);
 	}
 }
 
@@ -505,11 +653,11 @@ void SKSETaskInstallOverlay::Run()
 					VisitArmorAddon(actor, armor, foundAddon, [&](bool isFirstPerson, NiNode* skeleton, NiAVObject* armorNode)
 					{
 						BSGeometry* firstSkin = GetFirstShaderType(armorNode, BSShaderMaterial::kShaderType_FaceGenRGBTint);
-						if (firstSkin)
+						if (firstSkin && skeleton)
 						{
 							BSFixedString rootName("NPC Root [Root]");
 							NiAVObject* root = skeleton->GetObjectByName(&rootName.data);
-							if (NiNode* rootNode = root->GetAsNiNode()) {
+							if (NiNode* rootNode = root ? root->GetAsNiNode() : nullptr) {
 #ifdef _DEBUG
 								_DMESSAGE("%s - Installing Overlay %s to %08X on skeleton [%p]", __FUNCTION__, m_nodeName.data, actor->formID, (void*)skeleton);
 #endif
@@ -747,7 +895,7 @@ void OverlayInterface::RevertOverlay(TESObjectREFR * reference, const char* node
 		return;
 
 	if (!immediate) {
-		g_task->AddTask(new SKSETaskRevertOverlay(reference, nodeName, armorMask, addonMask, resetDiffuse));
+		MainThreadTasks::Add(new SKSETaskRevertOverlay(reference, nodeName, armorMask, addonMask, resetDiffuse));
 	}
 	else {
 		SKSETaskRevertOverlay(reference, nodeName, armorMask, addonMask, resetDiffuse).Run();
@@ -769,7 +917,7 @@ void OverlayInterface::RevertOverlays(TESObjectREFR * reference, bool resetDiffu
 		return;
 
 	if (!immediate) {
-		g_task->AddTask(new SKSETaskRevertOverlays(reference, resetDiffuse));
+		MainThreadTasks::Add(new SKSETaskRevertOverlays(reference, resetDiffuse));
 	}
 	else {
 		SKSETaskRevertOverlays(reference, resetDiffuse).Run();
@@ -783,7 +931,7 @@ void OverlayInterface::RevertHeadOverlay(TESObjectREFR * reference, const char* 
 		return;
 
 	if (!immediate) {
-		g_task->AddTask(new SKSETaskRevertFaceOverlay(reference, nodeName, partType, shaderType, resetDiffuse));
+		MainThreadTasks::Add(new SKSETaskRevertFaceOverlay(reference, nodeName, partType, shaderType, resetDiffuse));
 	}
 	else {
 		SKSETaskRevertFaceOverlay(reference, nodeName, partType, shaderType, resetDiffuse).Run();
@@ -800,11 +948,11 @@ void OverlayInterface::RevertHeadOverlays(TESObjectREFR * reference, bool resetD
 	{
 		for (UInt32 i = 0; i < g_numFaceOverlays; i++)
 		{
-			g_task->AddTask(new SKSETaskRevertFaceOverlay(reference, std::format(FACE_NODE, i).c_str(), BGSHeadPart::kTypeFace, BSShaderMaterial::kShaderType_FaceGen, resetDiffuse));
+			MainThreadTasks::Add(new SKSETaskRevertFaceOverlay(reference, std::format(FACE_NODE, i).c_str(), BGSHeadPart::kTypeFace, BSShaderMaterial::kShaderType_FaceGen, resetDiffuse));
 		}
 		for (UInt32 i = 0; i < g_numSpellFaceOverlays; i++)
 		{
-			g_task->AddTask(new SKSETaskRevertFaceOverlay(reference, std::format(FACE_NODE_SPELL, i).c_str(), BGSHeadPart::kTypeFace, BSShaderMaterial::kShaderType_FaceGen, resetDiffuse));
+			MainThreadTasks::Add(new SKSETaskRevertFaceOverlay(reference, std::format(FACE_NODE_SPELL, i).c_str(), BGSHeadPart::kTypeFace, BSShaderMaterial::kShaderType_FaceGen, resetDiffuse));
 		}
 	}
 	else
@@ -840,7 +988,7 @@ void OverlayInterface::RemoveOverlays(TESObjectREFR * reference, bool immediate)
 		return;
 
 	if (!immediate) {
-		g_task->AddTask(new SKSETaskRemoveOverlays(reference));
+		MainThreadTasks::Add(new SKSETaskRemoveOverlays(reference));
 	}
 	else {
 		SKSETaskRemoveOverlays(reference).Run();
@@ -867,7 +1015,7 @@ void OverlayInterface::QueueOverlayBuild(TESObjectREFR* reference, bool immediat
 		return;
 
 	if (!immediate) {
-		g_task->AddTask(new SKSETaskUpdateOverlays(reference));
+		MainThreadTasks::Add(new SKSETaskUpdateOverlays(reference));
 	}
 	else {
 		SKSETaskUpdateOverlays(reference).Run();

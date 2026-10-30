@@ -20,6 +20,7 @@
 #include "OverrideInterface.h"
 #include "NifUtils.h"
 #include "Utilities.h"
+#include "MainThreadTasks.h"
 
 extern ActorUpdateManager	g_actorUpdateManager;
 extern SKSETaskInterface	* g_task;
@@ -597,7 +598,7 @@ bool ItemDataInterface::EraseByUID(UInt32 uid, UInt32 formId)
 
 void ItemDataInterface::UpdateInventoryItemDye(UInt32 rankId, TESObjectARMO * armor, NiAVObject * rootNode)
 {
-	g_task->AddTask(new NIOVTaskDeferredMask((*g_thePlayer), false, armor, nullptr, rootNode, rankId ? g_itemDataInterface.GetData(rankId) : nullptr));
+	MainThreadTasks::Add(new NIOVTaskDeferredMask((*g_thePlayer), false, armor, nullptr, rootNode, rankId ? g_itemDataInterface.GetData(rankId) : nullptr));
 }
 
 void ItemDataInterface::ForEachItemAttribute(std::function<void(const ItemAttribute&)> functor)
@@ -616,7 +617,7 @@ void ItemDataInterface::OnAttach(TESObjectREFR * refr, TESObjectARMO * armor, TE
 	if (actor) {
 		IItemDataInterface::Identifier identifier;
 		identifier.SetSlotMask(armorMask);
-		g_task->AddTask(new NIOVTaskDeferredMask(refr, isFirstPerson, armor, addon, object, g_itemDataInterface.GetExistingData(actor, identifier)));
+		MainThreadTasks::Add(new NIOVTaskDeferredMask(refr, isFirstPerson, armor, addon, object, g_itemDataInterface.GetExistingData(actor, identifier)));
 	}
 }
 

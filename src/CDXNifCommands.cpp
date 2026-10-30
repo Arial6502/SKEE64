@@ -18,6 +18,7 @@
 #include "skse64/ScaleformCallbacks.h"
 
 #include "skse64/PluginAPI.h"
+#include "MainThreadTasks.h"
 
 extern FaceMorphInterface	g_morphInterface;
 extern SKSETaskInterface	* g_task;
@@ -53,7 +54,7 @@ void ApplyMorphData(BSTriShape * geometry, CDXVectorMap & vectorMap, float multi
 
 					// Update FaceGen
 					if (g_task)
-						g_task->AddTask(new CRGNTaskUpdateModel(geometry));
+						MainThreadTasks::Add(new CRGNTaskUpdateModel(geometry));
 				}
 			}
 		}

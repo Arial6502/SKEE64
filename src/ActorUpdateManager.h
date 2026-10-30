@@ -21,6 +21,8 @@ class ActorUpdateManager
 	, public BSTEventSink<TESInitScriptEvent>
 	, public BSTEventSink<TESLoadGameEvent>
 	, public BSTEventSink<TESCellFullyLoadedEvent>
+	, public BSTEventSink<TESCellAttachDetachEvent>
+	, public BSTEventSink<TESMoveAttachDetachEvent>
 {
 public:
 	virtual void AddInterface(IAddonAttachmentInterface* observer) override;
@@ -52,7 +54,10 @@ public:
 protected:
 	virtual	EventResult ReceiveEvent(TESObjectLoadedEvent * evn, EventDispatcher<TESObjectLoadedEvent> * dispatcher) override;
 	virtual	EventResult ReceiveEvent(TESCellFullyLoadedEvent* evn, EventDispatcher<TESCellFullyLoadedEvent>* dispatcher) override;
+	virtual	EventResult ReceiveEvent(TESCellAttachDetachEvent * evn, EventDispatcher<TESCellAttachDetachEvent> * dispatcher) override;
+	virtual	EventResult ReceiveEvent(TESMoveAttachDetachEvent * evn, EventDispatcher<TESMoveAttachDetachEvent> * dispatcher) override;
 	virtual	EventResult ReceiveEvent(TESInitScriptEvent * evn, EventDispatcher<TESInitScriptEvent> * dispatcher) override;
+	void OnActorAttached(TESObjectREFR * reference);
 	virtual	EventResult ReceiveEvent(TESLoadGameEvent* evn, EventDispatcher<TESLoadGameEvent>* dispatcher) override;
 
 	virtual skee_u32 GetVersion() override { return kCurrentPluginVersion; };

@@ -278,17 +278,17 @@ void SKSETaskExportHead::Run()
 			NiGeometryData * geometryData = niptr_cast<NiGeometryData>(geometry->m_spModelData);
 			NiGeometryData * newGeometryData = NULL;
 			if (geometryData)
-				CALL_MEMBER_FN(geometryData, DeepCopy)((NiObject **)&newGeometryData);
+				NifUtils::DeepCopy(geometryData, (NiObject **)&newGeometryData);
 
 			NiProperty * trishapeEffect = niptr_cast<NiProperty>(geometry->m_spEffectState);
 			NiPointer<NiProperty> newTrishapeEffect;
 			if (trishapeEffect)
-				CALL_MEMBER_FN(trishapeEffect, DeepCopy)((NiObject **)&newTrishapeEffect);
+				NifUtils::DeepCopy(trishapeEffect, (NiObject **)&newTrishapeEffect);
 
 			NiProperty * trishapeProperty = niptr_cast<NiProperty>(geometry->m_spPropertyState);
 			NiPointer<NiProperty> newTrishapeProperty;
 			if (trishapeProperty)
-				CALL_MEMBER_FN(trishapeProperty, DeepCopy)((NiObject **)&newTrishapeProperty);
+				NifUtils::DeepCopy(trishapeProperty, (NiObject **)&newTrishapeProperty);
 
 			NiSkinInstance * skinInstance = niptr_cast<NiSkinInstance>(geometry->m_spSkinInstance);
 			NiPointer<NiSkinInstance> newSkinInstance;
@@ -301,13 +301,13 @@ void SKSETaskExportHead::Run()
 				NiPointer<NiSkinData> newSkinData;
 				if (skinData) {
 					numBones = skinData->m_uiBones;
-					CALL_MEMBER_FN(skinData, DeepCopy)((NiObject **)&newSkinData);
+					NifUtils::DeepCopy(skinData, (NiObject **)&newSkinData);
 				}
 
 				NiSkinPartition * skinPartition = niptr_cast<NiSkinPartition>(skinInstance->m_spSkinPartition);
 				NiSkinPartition * newSkinPartition = NULL;
 				if (skinPartition)
-					CALL_MEMBER_FN(skinPartition, DeepCopy)((NiObject **)&newSkinPartition);
+					NifUtils::DeepCopy(skinPartition, (NiObject **)&newSkinPartition);
 
 				newSkinInstance->m_spSkinData = newSkinData;
 				newSkinInstance->m_spSkinPartition = newSkinPartition;
@@ -420,12 +420,12 @@ void SKSETaskExportHead::Run()
 			NiProperty * trishapeEffect = niptr_cast<NiProperty>(geometry->m_spEffectState);
 			NiPointer<NiProperty> newTrishapeEffect;
 			if (trishapeEffect)
-				CALL_MEMBER_FN(trishapeEffect, DeepCopy)((NiObject **)&newTrishapeEffect);
+				NifUtils::DeepCopy(trishapeEffect, (NiObject **)&newTrishapeEffect);
 
 			NiProperty * trishapeProperty = niptr_cast<NiProperty>(geometry->m_spPropertyState);
 			NiPointer<NiProperty> newTrishapeProperty;
 			if (trishapeProperty)
-				CALL_MEMBER_FN(trishapeProperty, DeepCopy)((NiObject **)&newTrishapeProperty);
+				NifUtils::DeepCopy(trishapeProperty, (NiObject **)&newTrishapeProperty);
 
 			NiSkinInstance * skinInstance = niptr_cast<NiSkinInstance>(geometry->m_spSkinInstance);
 			NiPointer<NiSkinInstance> newSkinInstance;
@@ -438,13 +438,13 @@ void SKSETaskExportHead::Run()
 				NiPointer<NiSkinData> newSkinData;
 				if (skinData) {
 					numBones = skinData->m_uiBones;
-					CALL_MEMBER_FN(skinData, DeepCopy)((NiObject **)&newSkinData);
+					NifUtils::DeepCopy(skinData, (NiObject **)&newSkinData);
 				}
 
 				NiSkinPartition * skinPartition = niptr_cast<NiSkinPartition>(skinInstance->m_spSkinPartition);
 				NiPointer<NiSkinPartition> newSkinPartition;
 				if (skinPartition)
-					CALL_MEMBER_FN(skinPartition, DeepCopy)((NiObject **)&newSkinPartition);
+					NifUtils::DeepCopy(skinPartition, (NiObject **)&newSkinPartition);
 
 				newSkinInstance->m_spSkinData = newSkinData;
 				newSkinInstance->m_spSkinPartition = newSkinPartition;
@@ -1184,6 +1184,12 @@ bool NifStreamWrapper::VisitObjects(std::function<bool(NiObject*)> functor)
 	}
 	
 	return false;
+}
+
+void NifUtils::DeepCopy(NiObject* object, NiObject** result)
+{
+	if (object && object->m_uiRefCount > 0)
+		CALL_MEMBER_FN(object, DeepCopy)(result);
 }
 
 NiExtraData* NifUtils::GetExtraData(NiObjectNET* object, BSFixedString name)

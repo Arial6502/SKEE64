@@ -207,6 +207,7 @@ public:
 
 	virtual void UninstallOverlay(const char * nodeName, TESObjectREFR * refr, NiNode * parent);
 	virtual void InstallOverlay(const char * nodeName, const char * path, TESObjectREFR * refr, BSGeometry * source, NiNode * destination, BGSTextureSet * textureSet = NULL);
+	void QueueVisibilityUpdate(NiAVObject * node);
 	virtual void ResetOverlay(const char * nodeName, TESObjectREFR * refr, BSGeometry * source, NiNode * destination, BGSTextureSet * textureSet = NULL, bool resetDiffuse = false); // Re-applies the skin's textures
 
 	virtual std::string & GetDefaultTexture();

@@ -15,6 +15,7 @@
 #include "skse64/GameTypes.h"
 
 #include "skse64/NiGeometry.h"
+#include "MainThreadTasks.h"
 
 extern ActorUpdateManager	g_actorUpdateManager;
 extern OverrideInterface	g_overrideInterface;
@@ -730,7 +731,7 @@ void OverrideInterface::Impl_SetProperties(OverrideHandle formId, bool immediate
 							set->Visit([&](OverrideVariant * value)
 							{
 								if (!immediate) {
-									g_task->AddTask(new NIOVTaskSetShaderProperty(foundNode, *value));
+									MainThreadTasks::Add(new NIOVTaskSetShaderProperty(foundNode, *value));
 								}
 								else {
 									SetShaderProperty(foundNode, value, true);
@@ -754,7 +755,7 @@ void OverrideInterface::Impl_SetNodeProperty(TESObjectREFR * refr, bool firstPer
 		NiAVObject * foundNode = root->GetObjectByName(&nodeName.data);
 		if(foundNode) {
 			if (!immediate) {
-				g_task->AddTask(new NIOVTaskSetShaderProperty(foundNode, *value));
+				MainThreadTasks::Add(new NIOVTaskSetShaderProperty(foundNode, *value));
 			}
 			else {
 				SetShaderProperty(foundNode, value, true);

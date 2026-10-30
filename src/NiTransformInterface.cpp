@@ -16,10 +16,12 @@
 #include "skse64/NiNodes.h"
 #include "skse64/NiSerialization.h"
 #include "skse64/NiExtraData.h"
+#include "MainThreadTasks.h"
 
 #include <algorithm>
 
 extern SKSETaskInterface			* g_task;
+extern bool							g_mainThreadTransforms;
 extern StringTable					g_stringTable;
 extern bool							g_enableEquippableTransforms;
 extern UInt16						g_scaleMode;
@@ -451,8 +453,33 @@ bool NiTransformInterface::Impl_VisitNodeTransforms(TESObjectREFR * refr, bool f
 	return ret;
 }
 
+// Actor::SetPosition, also moves the character controller
+static void SetActorPosition(Actor * actor, const NiPoint3 & position)
+{
+	typedef void(*_SetPosition)(Actor *, const NiPoint3 &, bool);
+	(*reinterpret_cast<_SetPosition **>(actor))[0xA9](actor, position, true);
+}
+
 void NiTransformInterface::Impl_UpdateNodeTransforms(TESObjectREFR * ref, bool firstPerson, bool isFemale, SKEEFixedString node)
 {
+	if (g_mainThreadTransforms && !MainThreadTasks::IsMainThread())
+	{
+		UInt32 formId = ref->formID;
+		MainThreadTasks::Add([this, formId, firstPerson, isFemale, node]()
+		{
+			TESForm * form = LookupFormByID(formId);
+			TESObjectREFR * refr = form ? DYNAMIC_CAST(form, TESForm, TESObjectREFR) : nullptr;
+			if (!refr)
+				return;
+
+			NiPoint3 position = refr->pos;
+			Impl_UpdateNodeTransforms(refr, firstPerson, isFemale, node);
+			if (Actor * actor = DYNAMIC_CAST(refr, TESObjectREFR, Actor))
+				SetActorPosition(actor, position);
+		});
+		return;
+	}
+
 	BSFixedString target("");
 	NiTransform transformResult;
 	Impl_VisitNodeTransforms(ref, firstPerson, isFemale, node, 
@@ -484,7 +511,7 @@ void NiTransformInterface::Impl_UpdateNodeTransforms(TESObjectREFR * ref, bool f
 				NiNode * parentNode = targetNode->GetAsNiNode();
 				if (parentNode) {
 					if (g_task)
-						g_task->AddTask(new NIOVTaskMoveNode(parentNode, foundNode));
+						MainThreadTasks::Add(new NIOVTaskMoveNode(parentNode, foundNode));
 				}
 			}
 		}
@@ -492,7 +519,7 @@ void NiTransformInterface::Impl_UpdateNodeTransforms(TESObjectREFR * ref, bool f
 		// Process Transform
 		foundNode->m_localTransform = (*baseTransform) * transformResult;
 		if (g_task)
-			g_task->AddTask(new NIOVTaskUpdateWorldData(foundNode));
+			MainThreadTasks::Add(new NIOVTaskUpdateWorldData(foundNode));
 	});
 }
 
@@ -555,6 +582,17 @@ void NiTransformInterface::Impl_UpdateNodeAllTransforms(TESObjectREFR * refr)
 
 void NiTransformInterface::SetTransforms(UInt32 formId, bool immediate, bool reset)
 {
+	// Reverting clears the data right after this returns, so a reset can't wait
+	if (g_mainThreadTransforms && !reset)
+	{
+		immediate = true;
+		if (!MainThreadTasks::IsMainThread())
+		{
+			MainThreadTasks::Add([this, formId]() { SetTransforms(formId, true); });
+			return;
+		}
+	}
+
 	SimpleLocker lock(&transformData.m_lock);
 
 	TESForm* form = LookupFormByID(formId);
@@ -733,7 +771,7 @@ void NiTransformInterface::SetTransforms(UInt32 formId, bool immediate, bool res
 				NiPointer<NiNode> rc = nodePair.second;
 				NIOVTaskMoveNode * newTask = new NIOVTaskMoveNode(rc, nodePair.first);
 				if (g_task && !immediate) {
-					g_task->AddTask(newTask);
+					MainThreadTasks::Add(newTask);
 				}
 				else {
 					newTask->Run();
@@ -743,7 +781,7 @@ void NiTransformInterface::SetTransforms(UInt32 formId, bool immediate, bool res
 
 			NIOVTaskUpdateWorldData * newTask = new NIOVTaskUpdateWorldData(root.get());
 			if (g_task && !immediate) {
-				g_task->AddTask(newTask);
+				MainThreadTasks::Add(newTask);
 			}
 			else {
 				newTask->Run();

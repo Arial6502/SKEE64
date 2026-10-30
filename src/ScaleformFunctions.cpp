@@ -13,6 +13,7 @@
 #include "TintMaskInterface.h"
 #include "ScaleformFunctions.h"
 #include "ScaleformUtils.h"
+#include "MainThreadTasks.h"
 
 extern SKSETaskInterface	* g_task;
 extern ItemDataInterface	g_itemDataInterface;
@@ -390,7 +391,7 @@ void SKSEScaleform_SetItemDyeColor::Invoke(Args * args)
 	else
 		g_itemDataInterface.SetItemTextureLayerColor(uniqueId, slotTextureIndexMap[maskIndex], maskIndex, color);
 
-	g_task->AddTask(new NIOVTaskUpdateItemDye(actor, identifier, TintMaskInterface::kUpdate_All, false));
+	MainThreadTasks::Add(new NIOVTaskUpdateItemDye(actor, identifier, TintMaskInterface::kUpdate_All, false));
 }
 
 void SKSEScaleform_SetItemDyeColors::Invoke(Args * args)
@@ -467,5 +468,5 @@ void SKSEScaleform_SetItemDyeColors::Invoke(Args * args)
 		}
 	}
 
-	g_task->AddTask(new NIOVTaskUpdateItemDye(actor, identifier, TintMaskInterface::kUpdate_All, false));
+	MainThreadTasks::Add(new NIOVTaskUpdateItemDye(actor, identifier, TintMaskInterface::kUpdate_All, false));
 }

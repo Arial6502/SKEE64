@@ -45,6 +45,7 @@
 #include "xbyak/xbyak.h"
 
 #include "common/ICriticalSection.h"
+#include "MainThreadTasks.h"
 #include <queue>
 
 extern PluginHandle			g_pluginHandle;
@@ -99,6 +100,7 @@ extern bool					g_hookMorphExtensions;
 extern bool					g_hookTintInventory;
 extern bool					g_hookTinting;
 extern bool					g_hookFaceOverlays;
+extern bool					g_skipStackCleanup;
 
 namespace Addresses {
 	// Hooks
@@ -116,6 +118,7 @@ namespace Addresses {
 	static const uintptr_t RaceSexMenu_Vtable = 0x01900078;					// 215885 ??_7RaceSexMenu@@6B@
 	static const uintptr_t CachePartsTarget_Target = 0x00953780;			// 52369
 	static const uintptr_t SetNewInventoryItemModel_Target = 0x009287B0;	// 51776
+	static const uintptr_t CreationConfirm_Target = 0x0090C570;				// 51369
 	// Functions
 	static const uintptr_t AttachBipedObject = 0x00217550;					// 15711
 	static const uintptr_t useFaceGenPreProcessedHeads = 0x0200D2D8;		// 378620
@@ -405,7 +408,7 @@ void __stdcall InstallFaceOverlayHook(TESObjectREFR* refr, bool attemptUninstall
 					task->Dispose();
 				}
 				else {
-					g_task->AddTask(task);
+					MainThreadTasks::Add(task);
 				}
 			}
 			SKSETaskInstallFaceOverlay * task = new SKSETaskInstallFaceOverlay(refr, nodeName.c_str(), FACE_MESH, BGSHeadPart::kTypeFace, BSShaderMaterial::kShaderType_FaceGen);
@@ -414,7 +417,7 @@ void __stdcall InstallFaceOverlayHook(TESObjectREFR* refr, bool attemptUninstall
 				task->Dispose();
 			}
 			else {
-				g_task->AddTask(task);
+				MainThreadTasks::Add(task);
 			}
 		}
 		for (UInt32 i = 0; i < g_numSpellFaceOverlays; i++)
@@ -427,7 +430,7 @@ void __stdcall InstallFaceOverlayHook(TESObjectREFR* refr, bool attemptUninstall
 					task->Dispose();
 				}
 				else {
-					g_task->AddTask(task);
+					MainThreadTasks::Add(task);
 				}
 			}
 			SKSETaskInstallFaceOverlay * task = new SKSETaskInstallFaceOverlay(refr, nodeName.c_str(), FACE_MAGIC_MESH, BGSHeadPart::kTypeFace, BSShaderMaterial::kShaderType_FaceGen);
@@ -436,7 +439,7 @@ void __stdcall InstallFaceOverlayHook(TESObjectREFR* refr, bool attemptUninstall
 				task->Dispose();
 			}
 			else {
-				g_task->AddTask(task);
+				MainThreadTasks::Add(task);
 			}
 		}
 	}
@@ -1015,7 +1018,7 @@ void UpdateModelSkin_Hooked(NiAVObject * object, NiColor *& color)
 		{
 			IItemDataInterface::Identifier identifier;
 			identifier.SetSlotMask(mask);
-			g_task->AddTask(new NIOVTaskUpdateItemDye(static_cast<Actor*>(rootNode->m_owner), identifier, TintMaskInterface::kUpdate_Skin, true));
+			MainThreadTasks::Add(new NIOVTaskUpdateItemDye(static_cast<Actor*>(rootNode->m_owner), identifier, TintMaskInterface::kUpdate_Skin, true));
 			mask <<= 1;
 		}
 	}
@@ -1033,7 +1036,7 @@ void UpdateModelHair_Hooked(NiAVObject * object, NiColor *& color)
 		{
 			IItemDataInterface::Identifier identifier;
 			identifier.SetSlotMask(mask);
-			g_task->AddTask(new NIOVTaskUpdateItemDye(static_cast<Actor*>(rootNode->m_owner), identifier, TintMaskInterface::kUpdate_Hair, true));
+			MainThreadTasks::Add(new NIOVTaskUpdateItemDye(static_cast<Actor*>(rootNode->m_owner), identifier, TintMaskInterface::kUpdate_Hair, true));
 			mask <<= 1;
 		}
 	}
@@ -1127,6 +1130,45 @@ bool SKEE_Execute(const ObScriptParam * paramInfo, ScriptData * scriptData, TESO
 	return g_commandInterface.ExecuteCommand(buffer, thisObj, buffer2);
 }
 
+typedef BGSLocation * (*_GetCurrentLocation)(TESObjectREFR * refr);
+_GetCurrentLocation GetCurrentLocation_Original = nullptr;
+
+// Confirming a craft asks for the location of the player's furniture without checking there is any.
+// The rest of that function handles a null reference, the location falls back to the player's.
+BGSLocation * GetCurrentLocation_Hooked(TESObjectREFR * refr)
+{
+	return GetCurrentLocation_Original(refr ? refr : static_cast<TESObjectREFR *>(*g_thePlayer));
+}
+
+// Recovery for saves that crash while writing the co-save. This is SKSEPersistentObjectStorage::CleanDroppedStacks,
+// which runs before SKSE stores its papyrus objects. Without it, objects of finished stacks stay in the co-save.
+static void DisableStackCleanup()
+{
+	static const uintptr_t kCleanDroppedStacks = 0x5D430;
+	static const UInt8 kSignature[] = {
+		0x40, 0x53, 0x55, 0x41, 0x55, 0x48, 0x83, 0xEC, 0x40, 0x48, 0x8B, 0x05,
+		0xD8, 0xE2, 0x0B, 0x00, 0x4C, 0x8B, 0xE9, 0x33, 0xC9, 0x8B, 0xE9, 0x48
+	};
+
+	uintptr_t skse = reinterpret_cast<uintptr_t>(GetModuleHandleA("skse64_1_6_1170.dll"));
+	if (!skse)
+	{
+		_ERROR("%s - skse64_1_6_1170.dll is not loaded", __FUNCTION__);
+		return;
+	}
+
+	auto headers = reinterpret_cast<const IMAGE_NT_HEADERS *>(skse + reinterpret_cast<const IMAGE_DOS_HEADER *>(skse)->e_lfanew);
+	uintptr_t function = skse + kCleanDroppedStacks;
+	if (headers->OptionalHeader.SizeOfImage < kCleanDroppedStacks + sizeof(kSignature) || memcmp(reinterpret_cast<const void *>(function), kSignature, sizeof(kSignature)) != 0)
+	{
+		_ERROR("%s - unknown SKSE build, bSkipStackCleanup needs SKSE 2.2.8", __FUNCTION__);
+		return;
+	}
+
+	SafeWrite8(function, 0xC3);
+	_WARNING("%s - bSkipStackCleanup is set, SKSE stack cleanup is disabled", __FUNCTION__);
+}
+
 bool InstallSKEEHooks()
 {
 	if (g_trampoline) {
@@ -1157,6 +1199,16 @@ bool InstallSKEEHooks()
 			return false;
 		}
 	}
+
+	MainThreadTasks::InstallHooks();
+
+	if (g_skipStackCleanup)
+		DisableStackCleanup();
+
+	RelocAddr<uintptr_t> GetCurrentLocation_Target(Addresses::CreationConfirm_Target + 0x214);
+	uintptr_t getCurrentLocationCall = GetCurrentLocation_Target.GetUIntPtr();
+	GetCurrentLocation_Original = (_GetCurrentLocation)(getCurrentLocationCall + 5 + *reinterpret_cast<SInt32 *>(getCurrentLocationCall + 1));
+	g_branchTrampoline.Write5Call(getCurrentLocationCall, (uintptr_t)GetCurrentLocation_Hooked);
 
 	static const uintptr_t LoadRaceMenuSliders = RaceSexMenu::LoadSliders_Address;
 
