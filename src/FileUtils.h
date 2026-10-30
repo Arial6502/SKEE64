@@ -46,6 +46,7 @@ namespace FileUtils
 
 TESRace * GetRaceByName(std::string & raceName);
 BGSHeadPart * GetHeadPartByName(std::string & headPartName);
+void BuildHeadPartIndex();
 
 ModInfo* GetModInfoByFormID(UInt32 formId, bool allowLight = true);
 

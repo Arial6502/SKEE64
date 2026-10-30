@@ -110,12 +110,16 @@ public:
 
 	void RemoveString(const SKEEFixedString & str);
 
+	// Counts the strings a save referred to but could not supply, callers drop those entries
+	static inline UInt32 s_failedReads = 0;
+
 	static StringTableItem ReadString(const SKSESerializationInterface * intfc, const StringIdMap & stringTable)
 	{
 		UInt32 stringId;
 		if (!Serialization::ReadData<UInt32>(intfc, &stringId))
 		{
 			_ERROR("%s - Error loading string id", __FUNCTION__);
+			s_failedReads++;
 			return nullptr;
 		}
 
@@ -123,6 +127,7 @@ public:
 		if (it == stringTable.end())
 		{
 			_ERROR("%s - Error loading string from table", __FUNCTION__);
+			s_failedReads++;
 			return nullptr;
 		}
 

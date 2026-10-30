@@ -79,6 +79,14 @@ bool NodeTransformKeys::Load(SKSESerializationInterface * intfc, UInt32 kVersion
 						return error;
 					}
 
+					// A key missing from the string table can't be hashed. Its overrides still have to be read past.
+					if (!key)
+					{
+						OverrideRegistration<StringTableItem> skipped;
+						error = skipped.Load(intfc, version, stringTable);
+						break;
+					}
+
 					// operator[] not working for some odd reason
 					bool loadError = false;
 					NodeTransformKeys::iterator iter = this->find(key); // Find existing first

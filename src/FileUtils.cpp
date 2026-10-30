@@ -1,5 +1,6 @@
 #include "FileUtils.h"
 
+#include <unordered_map>
 #include <unordered_set>
 #include <queue>
 #include <Shlwapi.h>
@@ -133,26 +134,54 @@ TESRace * GetRaceByName(std::string & raceName)
 	return NULL;
 }
 
+// Keyed by the string pool pointer, which is what BSFixedString compares. Read from job threads, only built at data load.
+static std::unordered_map<const char *, BGSHeadPart *> s_headPartsByName;
+static UInt32 s_indexedHeadParts = 0;
+
+void BuildHeadPartIndex()
+{
+	DataHandler * dataHandler = DataHandler::GetSingleton();
+	if (!dataHandler)
+		return;
+
+	s_headPartsByName.reserve(dataHandler->headParts.count);
+	for (UInt32 i = 0; i < dataHandler->headParts.count; i++)
+	{
+		BGSHeadPart * headPart = NULL;
+		if (dataHandler->headParts.GetNthItem(i, headPart) && headPart)
+			s_headPartsByName.emplace(headPart->partName.data, headPart); // Keeps the first match in load order
+	}
+	s_indexedHeadParts = dataHandler->headParts.count;
+}
+
 BGSHeadPart * GetHeadPartByName(std::string & headPartName)
 {
 	DataHandler * dataHandler = DataHandler::GetSingleton();
-	if (dataHandler)
+	if (!dataHandler)
+		return NULL;
+
+	BGSHeadPart * result = NULL;
+	BSFixedString partName(headPartName.c_str());
+	if (s_indexedHeadParts > 0 && s_indexedHeadParts == dataHandler->headParts.count)
+	{
+		auto it = s_headPartsByName.find(partName.data);
+		if (it != s_headPartsByName.end())
+			result = it->second;
+	}
+	else
 	{
 		for (UInt32 i = 0; i < dataHandler->headParts.count; i++)
 		{
 			BGSHeadPart * headPart = NULL;
-			if (dataHandler->headParts.GetNthItem(i, headPart)) {
-				BSFixedString partName(headPartName.c_str());
-				if (headPart->partName == partName) {
-					partName.Release();
-					return headPart;
-				}
-				partName.Release();
+			if (dataHandler->headParts.GetNthItem(i, headPart) && headPart && headPart->partName == partName) {
+				result = headPart;
+				break;
 			}
 		}
 	}
 
-	return NULL;
+	partName.Release();
+	return result;
 }
 
 ModInfo* GetModInfoByFormID(UInt32 formId, bool allowLight)

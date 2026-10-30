@@ -2030,7 +2030,7 @@ bool BodyMorphSet::Load(SKSESerializationInterface * intfc, UInt32 kVersion, con
 					BodyMorph value;
 					if (!value.Load(intfc, version, stringTable))
 					{
-						if(*value.m_name == SKEEFixedString(""))
+						if(!value.m_name || *value.m_name == SKEEFixedString(""))
 							continue;
 
 #ifdef _DEBUG
@@ -2152,6 +2152,9 @@ bool BodyMorphData::Load(SKSESerializationInterface * intfc, UInt32 kVersion, co
 							return error;
 						}
 
+						if (!keyName)
+							continue;
+
 						// If the keys were mapped by mod name, skip them if they arent in load order
 						std::string strKey(keyName->c_str());
 						SKEEFixedString ext(strKey.substr(strKey.find_last_of(".") + 1).c_str());
@@ -2164,7 +2167,8 @@ bool BodyMorphData::Load(SKSESerializationInterface * intfc, UInt32 kVersion, co
 						pairs.insert_or_assign(keyName, value);
 					}
 
-					insert_or_assign(morphName, pairs);
+					if (morphName)
+						insert_or_assign(morphName, pairs);
 				}
 
 				break;

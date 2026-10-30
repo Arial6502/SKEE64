@@ -45,6 +45,7 @@
 #include "ScaleformCharGenFunctions.h"
 #include "ScaleformUtils.h"
 #include "StringTable.h"
+#include "FileUtils.h"
 
 #include <shlobj.h>
 #include <string>
@@ -598,10 +599,16 @@ void SKSEMessageHandler(SKSEMessagingInterface::Message * message)
 		}
 		break;
 		case SKSEMessagingInterface::kMessage_PreLoadGame:
+			StringTable::s_failedReads = 0;
 			g_enableBodyInit = false;
 			g_tintMaskInterface.ManageTints();
 			break;
 		case SKSEMessagingInterface::kMessage_PostLoadGame:
+			if (StringTable::s_failedReads > 0)
+			{
+				_ERROR("Skipped %u invalid entries while loading this save", StringTable::s_failedReads);
+				Console_Print("SKEE: skipped %u invalid entries while loading this save, see skee64.log", StringTable::s_failedReads);
+			}
 			g_enableBodyInit = true;
 			g_tintMaskInterface.ReleaseTints();
 			break;
@@ -612,6 +619,8 @@ void SKSEMessageHandler(SKSEMessagingInterface::Message * message)
 		}
 		case SKSEMessagingInterface::kMessage_DataLoaded:
 		{
+			BuildHeadPartIndex();
+
 			if (g_enableBodyGen) {
 				GetEventDispatcherList()->initScriptDispatcher.AddEventSink(&g_actorUpdateManager);
 
