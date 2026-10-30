@@ -638,7 +638,7 @@ void TintMaskInterface::VisitTemplateData(TESObjectREFR* refr, TESObjectARMO* ar
 	}
 }
 
-void TintMaskInterface::GetTemplateColorMap(TESObjectREFR* refr, TESObjectARMO * armor, absl::btree_map<SInt32, UInt32>& colorMap)
+void TintMaskInterface::GetTemplateColorMap(TESObjectREFR* refr, TESObjectARMO * armor, std::map<SInt32, UInt32>& colorMap)
 {
 	VisitTemplateData(refr, armor, [&](auto shapeMap)
 	{
@@ -694,7 +694,7 @@ void TintMaskInterface::GetTemplateColorMap(TESObjectREFR* refr, TESObjectARMO *
 }
 
 
-void TintMaskInterface::GetSlotTextureIndexMap(TESObjectREFR* refr, TESObjectARMO* armor, absl::btree_map<SInt32, UInt32>& slotTextureIndexMap)
+void TintMaskInterface::GetSlotTextureIndexMap(TESObjectREFR* refr, TESObjectARMO* armor, std::map<SInt32, UInt32>& slotTextureIndexMap)
 {
 	VisitTemplateData(refr, armor, [&](auto shapeMap)
 	{
