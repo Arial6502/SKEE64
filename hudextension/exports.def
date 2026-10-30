@@ -1,3 +1,0 @@
-LIBRARY	"hudextension"
-EXPORTS
-SKSEPlugin_Load

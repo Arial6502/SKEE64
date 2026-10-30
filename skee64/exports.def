@@ -1,3 +1,0 @@
-LIBRARY	"skee64"
-EXPORTS
-SKSEPlugin_Load

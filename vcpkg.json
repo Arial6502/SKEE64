@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "skee64",
+  "version-string": "0.4.19.17",
+  "description": "Skyrim 64 Engine Extender",
+  "dependencies": [
+    "directxtex",
+    "half",
+    "jsoncpp",
+    "spdlog",
+    "tinyxml2"
+  ]
+}

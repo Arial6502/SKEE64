@@ -1,0 +1,188 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "common",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_SUPPRESS_DEVELOPER_WARNINGS": "ON",
+        "CMAKE_WARN_DEPRECATED": "OFF"
+      }
+    },
+    {
+      "name": "platform-win32",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+      },
+      "environment": {
+        "PROJECT_PLATFORM_FLAGS": "-DWIN32_LEAN_AND_MEAN -DNOMINMAX",
+        "PROJECT_PLATFORM": "windows"
+      }
+    },
+    {
+      "name": "generator-ninja",
+      "hidden": true,
+      "generator": "Ninja"
+    },
+    {
+      "name": "vcpkg",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": {
+          "type": "STRING",
+          "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        },
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
+      }
+    },
+    {
+      "name": "win64",
+      "hidden": true,
+      "architecture": "x64",
+      "cacheVariables": {
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+      }
+    },
+    {
+      "name": "msvc",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_CXX_FLAGS": "/EHsc /MP $penv{CXXFLAGS}"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "intelliSenseMode": "windows-msvc-x64",
+          "enableMicrosoftCodeAnalysis": true,
+          "enableClangTidyCodeAnalysis": true
+        }
+      }
+    },
+    {
+      "name": "base-config",
+      "hidden": true,
+      "inherits": [
+        "common",
+        "vcpkg",
+        "platform-win32",
+        "generator-ninja",
+        "msvc"
+      ]
+    },
+    {
+      "name": "config-debug",
+      "displayName": "Debug",
+      "description": "A debug build.",
+      "inherits": "base-config",
+      "binaryDir": "${sourceDir}/build/Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "config-release",
+      "displayName": "Release (Default)",
+      "description": "Configure release build with SSE4.2.",
+      "inherits": "base-config",
+      "binaryDir": "${sourceDir}/build/Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS": "/arch:SSE4.2 /EHsc /Zi /FS /fp:fast /GL /GT /Zc:inline /d2FH4 /Gw /O2 /Ob2 /Oi /Ot /Oy /fp:except- /Gy /Gm- /sdl- /GS /guard:cf- /Qpar",
+        "CMAKE_CXX_FLAGS_RELEASE": "/arch:SSE4.2 /O2 /Ob2 /DNDEBUG /GL /GT /Zc:inline /d2FH4 /Gw /Gy /Oi /Ot /Oy /fp:fast /fp:except- /GS /guard:cf- /Qpar",
+        "CMAKE_SHARED_LINKER_FLAGS": "/DEBUG:FULL /OPT:REF /OPT:ICF /LTCG /INCREMENTAL:NO",
+        "CMAKE_SHARED_LINKER_FLAGS_RELEASE": "/DEBUG:FULL /OPT:REF /OPT:ICF /LTCG /INCREMENTAL:NO"
+      }
+    },
+    {
+      "name": "config-release-avx",
+      "displayName": "Release (AVX)",
+      "description": "Configure release build with AVX.",
+      "inherits": "base-config",
+      "binaryDir": "${sourceDir}/build/Release-AVX",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS": "/arch:AVX /EHsc /Zi /FS /fp:fast /GL /GT /Zc:inline /d2FH4 /Gw /O2 /Ob2 /Oi /Ot /Oy /fp:except- /Gy /Gm- /sdl- /GS /guard:cf- /Qpar",
+        "CMAKE_CXX_FLAGS_RELEASE": "/arch:AVX /O2 /Ob2 /DNDEBUG /GL /GT /Zc:inline /d2FH4 /Gw /Gy /Oi /Ot /Oy /fp:fast /fp:except- /GS /guard:cf- /Qpar",
+        "CMAKE_SHARED_LINKER_FLAGS": "/DEBUG:FULL /OPT:REF /OPT:ICF /LTCG /INCREMENTAL:NO",
+        "CMAKE_SHARED_LINKER_FLAGS_RELEASE": "/DEBUG:FULL /OPT:REF /OPT:ICF /LTCG /INCREMENTAL:NO"
+      }
+    },
+    {
+      "name": "config-release-avx2",
+      "displayName": "Release (AVX2)",
+      "description": "Configure release build with AVX2.",
+      "inherits": "base-config",
+      "binaryDir": "${sourceDir}/build/Release-AVX2",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS": "/arch:AVX2 /EHsc /Zi /FS /fp:fast /GL /GT /Zc:inline /d2FH4 /Gw /O2 /Ob2 /Oi /Ot /Oy /fp:except- /Gy /Gm- /sdl- /GS /guard:cf- /Qpar",
+        "CMAKE_CXX_FLAGS_RELEASE": "/arch:AVX2 /O2 /Ob2 /DNDEBUG /GL /GT /Zc:inline /d2FH4 /Gw /Gy /Oi /Ot /Oy /fp:fast /fp:except- /GS /guard:cf- /Qpar",
+        "CMAKE_SHARED_LINKER_FLAGS": "/DEBUG:FULL /OPT:REF /OPT:ICF /LTCG /INCREMENTAL:NO",
+        "CMAKE_SHARED_LINKER_FLAGS_RELEASE": "/DEBUG:FULL /OPT:REF /OPT:ICF /LTCG /INCREMENTAL:NO"
+      }
+    },
+    {
+      "name": "config-release-avx512",
+      "displayName": "Release (AVX512)",
+      "description": "Configure release build with AVX512.",
+      "inherits": "base-config",
+      "binaryDir": "${sourceDir}/build/Release-AVX512",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS": "/arch:AVX512 /EHsc /Zi /FS /fp:fast /GL /GT /Zc:inline /d2FH4 /Gw /O2 /Ob2 /Oi /Ot /Oy /fp:except- /Gy /Gm- /sdl- /GS /guard:cf- /Qpar",
+        "CMAKE_CXX_FLAGS_RELEASE": "/arch:AVX512 /O2 /Ob2 /DNDEBUG /GL /GT /Zc:inline /d2FH4 /Gw /Gy /Oi /Ot /Oy /fp:fast /fp:except- /GS /guard:cf- /Qpar",
+        "CMAKE_SHARED_LINKER_FLAGS": "/DEBUG:FULL /OPT:REF /OPT:ICF /LTCG /INCREMENTAL:NO",
+        "CMAKE_SHARED_LINKER_FLAGS_RELEASE": "/DEBUG:FULL /OPT:REF /OPT:ICF /LTCG /INCREMENTAL:NO"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-base",
+      "hidden": true,
+      "environment": {
+        "NINJA_STATUS": "[%f/%t %e s, %r active] "
+      }
+    },
+    {
+      "name": "build-debug",
+      "displayName": "Build SKEE64 (Debug)",
+      "configurePreset": "config-debug",
+      "inherits": "build-base",
+      "description": "Compile a debug build."
+    },
+    {
+      "name": "build-release",
+      "displayName": "Build SKEE64 (Release)",
+      "configurePreset": "config-release",
+      "inherits": "build-base",
+      "description": "Compile an optimized release build (SSE4.2)."
+    },
+    {
+      "name": "build-release-avx",
+      "displayName": "Build SKEE64 (Release AVX)",
+      "configurePreset": "config-release-avx",
+      "inherits": "build-base",
+      "description": "Compile an optimized release build (AVX)."
+    },
+    {
+      "name": "build-release-avx2",
+      "displayName": "Build SKEE64 (Release AVX2)",
+      "configurePreset": "config-release-avx2",
+      "inherits": "build-base",
+      "description": "Compile an optimized release build (AVX2)."
+    },
+    {
+      "name": "build-release-avx512",
+      "displayName": "Build SKEE64 (Release AVX512)",
+      "configurePreset": "config-release-avx512",
+      "inherits": "build-base",
+      "description": "Compile an optimized release build (AVX512)."
+    }
+  ]
+}
