@@ -10,6 +10,9 @@
 
 #include "NifUtils.h"
 
+// SKSE 2.0.20 calls BGSTextureSet's flags unkC8, so ->flags there is TESForm's and still compiles
+static const UInt32 kTextureSetHasModelSpaceNormalMap = 1 << 2;
+
 void ActorArmorTangentUpdater::OnAttach(TESObjectREFR* refr, TESObjectARMO* armor, TESObjectARMA* addon, NiAVObject* object, bool isFirstPerson, NiNode* skeleton, NiNode* root)
 {
 	if (refr && refr->formType == Character::kTypeID)
@@ -43,7 +46,7 @@ void ActorArmorTangentUpdater::OnAttach(TESObjectREFR* refr, TESObjectARMO* armo
 					skinForm->armorAddons.GetNthItem(i, arma);
 					if (addon->biped.GetSlotMask() & arma->biped.GetSlotMask() && arma->isValidRace(race))
 					{
-						textureSet = arma->skinTextures[gender];
+						textureSet = reinterpret_cast<BGSTextureSet **>(&arma->unk130)[gender]; // NAM0, NAM1
 						break;
 					}
 				}
@@ -64,7 +67,7 @@ void ActorArmorTangentUpdater::OnAttach(TESObjectREFR* refr, TESObjectARMO* armo
 						{
 							textureSet = GetTextureSet();
 						}
-						if (textureSet && !(textureSet->flags & BGSTextureSet::kFlagHasModelSpaceNormalMap))
+						if (textureSet && !(textureSet->unkC8 & kTextureSetHasModelSpaceNormalMap))
 						{
 							shaderProperty->shaderFlags1 &= ~BSShaderProperty::kSLSF1_Model_Space_Normals;
 						}

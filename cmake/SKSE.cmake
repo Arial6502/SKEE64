@@ -5,7 +5,7 @@ include(FetchContent)
 FetchContent_Declare(
 	skse64
 	GIT_REPOSITORY https://github.com/ianpatt/skse64
-	GIT_TAG b9bfa27de9fe927daade322c5209180176604495 # v2.2.8, the last release for 1.6.1170
+	GIT_TAG 0d6c91dc84f1d384da113bec9e298867a5c86ce1 # v2.0.20, the last release for 1.5.97
 	SOURCE_SUBDIR none
 )
 FetchContent_Declare(

@@ -228,6 +228,10 @@ std::string GetFormIdentifier(TESForm * form)
 	return formName;
 }
 
+// SKSE 2.0.20 doesn't declare this. Unlike later versions it takes the name by reference.
+typedef TESForm * (*_LookupFormByEditorID)(const char * const & editorId);
+static RelocAddr<_LookupFormByEditorID> LookupFormByEditorID(0x001942E0);
+
 TESForm * GetFormFromIdentifier(const std::string & formIdentifier)
 {
 	std::size_t pos = formIdentifier.find_first_of('|');

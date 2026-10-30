@@ -13,9 +13,18 @@ namespace MainThreadTasks
 {
 	namespace Addresses
 	{
-		static const uintptr_t Main_Update_Call1 = 0x0063E970 + 0x160;	// 36544
-		static const uintptr_t Main_Update_Call2 = 0x00641AD0 + 0x11F;	// 36550
+		static const uintptr_t Main_Update_Call = 0x005AF3D0 + 0x11F;
+		static const uintptr_t Main_Singleton = 0x02F26BF8;
 	}
+
+	// SKSE 2.0.20 doesn't declare Main
+	struct Main
+	{
+		UInt8	pad00[0x28];
+		UInt32	threadId;	// 28
+	};
+
+	static RelocPtr<Main *> g_main(Addresses::Main_Singleton);
 
 	struct Key
 	{
@@ -134,7 +143,6 @@ namespace MainThreadTasks
 
 	void InstallHooks()
 	{
-		MainUpdateHook<1>::Install(Addresses::Main_Update_Call1);
-		MainUpdateHook<2>::Install(Addresses::Main_Update_Call2);
+		MainUpdateHook<1>::Install(Addresses::Main_Update_Call);
 	}
 }
