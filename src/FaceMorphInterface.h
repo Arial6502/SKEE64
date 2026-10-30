@@ -296,8 +296,9 @@ public:
 	};
 	virtual skee_u32 GetVersion();
 
-	bool Load(SKSESerializationInterface * intfc, UInt32 version) { return false; } // Unused due to separate dblock name for morph and sculpt
-	void Save(SKSESerializationInterface * intfc, UInt32 kVersion);
+	// Plugins built for 1.5 call the morph functions below by vtable slot, so these two have to stay virtual
+	virtual bool Load(SKSESerializationInterface * intfc, UInt32 version) { return false; } // Unused due to separate dblock name for morph and sculpt
+	virtual void Save(SKSESerializationInterface * intfc, UInt32 kVersion);
 	virtual void Revert();
 	void RevertInternals();
 
