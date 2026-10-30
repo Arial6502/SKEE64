@@ -810,11 +810,13 @@ bool ItemAttributeData::TintData::Load(SKSESerializationInterface * intfc, UInt3
 			}
 			if (overrideFlags & OverrideFlags::kTextureMap)
 			{
-				m_textureMap[maskIndex] = StringTable::ReadString(intfc, stringTable);
+				if (auto texture = StringTable::ReadString(intfc, stringTable))
+					m_textureMap[maskIndex] = texture;
 			}
 			if (overrideFlags & OverrideFlags::kBlendMap)
 			{
-				m_blendMap[maskIndex] = StringTable::ReadString(intfc, stringTable);
+				if (auto blendMode = StringTable::ReadString(intfc, stringTable))
+					m_blendMap[maskIndex] = blendMode;
 			}
 			if (overrideFlags & OverrideFlags::kTypeMap)
 			{

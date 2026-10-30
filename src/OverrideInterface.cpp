@@ -1375,6 +1375,8 @@ bool OverrideVariant::Load(SKSESerializationInterface * intfc, UInt32 kVersion, 
 							if (kVersion >= OverrideInterface::kSerializationVersion3)
 							{
 								this->str = g_stringTable.ReadString(intfc, stringTable);
+								if (!this->str)
+									SetNone();
 							}
 							else if (kVersion >= OverrideInterface::kSerializationVersion1)
 							{
@@ -1647,6 +1649,17 @@ bool OverrideRegistration<T>::Load(SKSESerializationInterface * intfc, UInt32 kV
 						_MESSAGE("%s - Error loading node entry key", __FUNCTION__);
 						error = true;
 						return error;
+					}
+
+					// A key missing from the string table can't be hashed. Its overrides still have to be read past.
+					if constexpr (std::is_same_v<T, StringTableItem>)
+					{
+						if (!key)
+						{
+							OverrideSet skipped;
+							error = skipped.Load(intfc, version, stringTable);
+							break;
+						}
 					}
 
 					// operator[] not working for some odd reason
