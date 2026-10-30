@@ -10,6 +10,7 @@
 #include "skse64/GameThreads.h"
 #include "skse64/PapyrusEvents.h"
 
+#include <map>
 #include <unordered_map>
 #include <functional>
 #include <memory>
@@ -161,8 +162,9 @@ public:
 
 	virtual bool IsDyeable(TESObjectARMO * armor);
 
-	virtual void GetTemplateColorMap(TESObjectREFR* actor, TESObjectARMO * armor, absl::btree_map<SInt32, UInt32>& colorMap);
-	virtual void GetSlotTextureIndexMap(TESObjectREFR* actor, TESObjectARMO* armor, absl::btree_map<SInt32, UInt32>& slotTextureIndexMap);
+	// Other plugins fill these from their own code, so the map type is part of the interface
+	virtual void GetTemplateColorMap(TESObjectREFR* actor, TESObjectARMO * armor, std::map<SInt32, UInt32>& colorMap);
+	virtual void GetSlotTextureIndexMap(TESObjectREFR* actor, TESObjectARMO* armor, std::map<SInt32, UInt32>& slotTextureIndexMap);
 
 	virtual void LoadMods();
 
