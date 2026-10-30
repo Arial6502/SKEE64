@@ -954,6 +954,20 @@ NiExtraData* FindExtraData(NiAVObject* object, BSFixedString name)
 	return extraData;
 }
 
+// ArmorUnlimited keeps conflicting armor on extra bipeds the game doesn't know about
+typedef void (*ExtraPartVisitor)(void* context, UInt32 slot, TESForm* armor, TESForm* addon, NiAVObject* object);
+typedef void (*VisitExtraPartsFunc)(void* biped, ExtraPartVisitor visitor, void* context);
+
+static VisitExtraPartsFunc GetVisitExtraParts()
+{
+	static VisitExtraPartsFunc func = []() -> VisitExtraPartsFunc
+	{
+		static HMODULE module = GetModuleHandleA("ArmorUnlimited.dll");
+		return module ? reinterpret_cast<VisitExtraPartsFunc>(GetProcAddress(module, "ArmorUnlimited_VisitExtraParts")) : nullptr;
+	}();
+	return func;
+}
+
 void VisitBipedNodes(TESObjectREFR* refr, std::function<void(bool, UInt32, NiNode*, TESForm*, TESForm*, NiAVObject*)> functor)
 {
 	for (SInt32 k = 0; k <= 1; ++k)
@@ -976,6 +990,17 @@ void VisitBipedNodes(TESObjectREFR* refr, std::function<void(bool, UInt32, NiNod
 				{
 					functor(k == 1, i, refr->GetNiRootNode(k), data.armor, data.addon, data.object);
 				}
+			}
+			if (auto visitExtraParts = GetVisitExtraParts())
+			{
+				auto visit = [&](UInt32 slot, TESForm* armor, TESForm* addon, NiAVObject* object)
+				{
+					functor(k == 1, slot, refr->GetNiRootNode(k), armor, addon, object);
+				};
+				visitExtraParts(weightModel->bipedData, [](void* context, UInt32 slot, TESForm* armor, TESForm* addon, NiAVObject* object)
+				{
+					(*static_cast<decltype(visit)*>(context))(slot, armor, addon, object);
+				}, &visit);
 			}
 		}
 	}
