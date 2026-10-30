@@ -155,6 +155,7 @@ UInt16	g_scaleMode = 0;
 UInt16	g_bodyMorphMode = 0;
 bool	g_bodyMorphGPUCopy = true;
 bool	g_bodyMorphRebind = true;
+bool	g_logMorphTiming = false;
 
 bool	g_externalHeads = false;
 bool	g_extendedMorphs = true;
@@ -820,6 +821,7 @@ __declspec(dllexport) bool SKSEPlugin_Load(const SKSEInterface * skse)
 	SKEE64GetConfigValue("General", "uTintHairSlot", &g_tintHairSlot);
 	SKEE64GetConfigValue("General", "bBodyMorphGPUCopy", &g_bodyMorphGPUCopy);
 	SKEE64GetConfigValue("General", "bBodyMorphRebind", &g_bodyMorphRebind);
+	SKEE64GetConfigValue("General", "bLogMorphTiming", &g_logMorphTiming);
 
 	UInt64 bodyMorphMemoryLimit = 256000000;
 	if (SKEE64GetConfigValue("General", "uBodyMorphMemoryLimit", &bodyMorphMemoryLimit))

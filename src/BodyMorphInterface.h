@@ -9,6 +9,7 @@
 #include "skse64/NiGeometry.h"
 
 #include "StringTable.h"
+#include "MorphKernel.h"
 
 #ifdef min
 #undef min
@@ -25,6 +26,7 @@
 #include <unordered_set>
 #include <functional>
 #include <memory>
+#include <chrono>
 #include <ctime>
 #include <mutex>
 
@@ -93,12 +95,16 @@ public:
 	DirectX::XMVECTOR delta;
 };
 
+// Same layout as the TRI file, a body has millions of these
 class TriShapePackedVertexDelta
 {
 public:
 	UInt16	index;
-	DirectX::XMVECTOR delta;
+	SInt16	x;
+	SInt16	y;
+	SInt16	z;
 };
+static_assert(sizeof(TriShapePackedVertexDelta) == 8);
 
 class TriShapePackedUVDelta
 {
@@ -179,16 +185,25 @@ class BodyMorphMap : public absl::flat_hash_map<SKEEFixedString, std::pair<TriSh
 {
 	friend class MorphCache;
 public:
-	BodyMorphMap() : m_hasUV(false) { }
+	BodyMorphMap() : m_hasUV(false), m_topologies(std::make_shared<Topologies>()) { }
 
-	void ApplyMorphs(TESObjectREFR * refr, std::function<void(const TriShapeVertexDataPtr, float)> vertexFunctor, std::function<void(const TriShapeVertexDataPtr, float)> uvFunctor) const;
-	bool HasMorphs(TESObjectREFR * refr) const;
 	void ForEachMorph(std::function<void(const SKEEFixedString&, const std::pair<TriShapeVertexDataPtr, TriShapeVertexDataPtr>&)> functor) const;
+
+	// Finds or builds the topology of the mesh these morphs are being applied to, from its unmorphed vertex block
+	const MorphKernel::Topology * GetTopology(const UInt8 * vertices, UInt32 vertexCount, const MorphKernel::VertexLayout & layout, const std::vector<MorphKernel::TriangleRun> & triangles, const std::vector<UInt16> & lockedVertices) const;
 
 	bool HasUV() const { return m_hasUV; }
 
 private:
+	// Usually a single mesh, but nothing stops two NIFs from sharing a TRI
+	struct Topologies
+	{
+		std::mutex lock;
+		std::vector<std::unique_ptr<MorphKernel::Topology>> meshes;
+	};
+
 	bool m_hasUV;
+	std::shared_ptr<Topologies> m_topologies;
 };
 
 class TriShapeMap : public absl::node_hash_map<SKEEFixedString, BodyMorphMap>
@@ -202,14 +217,15 @@ public:
 	size_t memoryUsage;
 };
 
-class NIOVTaskUpdateSkinPartition;
+struct MorphJob;
+typedef std::vector<std::pair<StringTableItem, float>> MorphFactors;
+
 class MorphFileCache
 {
 	friend class MorphCache;
 	friend class BodyMorphInterface;
 public:
-	void ApplyMorphs(TESObjectREFR * refr, NiAVObject * rootNode, bool erase = false);
-	std::vector<NIOVTaskUpdateSkinPartition*> ApplyMorph(TESObjectREFR * refr, NiAVObject * rootNode, bool erase, const std::pair<SKEEFixedString, BodyMorphMap> & bodyMorph);
+	void CollectJobs(NiAVObject * rootNode, bool isAttaching, std::vector<MorphJob> & jobs);
 	void ForEachShape(std::function<void(const SKEEFixedString&, const BodyMorphMap&)> functor) const;
 
 	size_t GetByteSize() const { return vertexMap.memoryUsage; }
@@ -248,9 +264,12 @@ public:
 private:
 	void ApplyMorphsNow(TESObjectREFR * refr, NiAVObject * rootNode, bool attaching);
 	void UpdateMorphsNow(TESObjectREFR * refr);
+	void CollectJobs(NiAVObject * rootNode, bool attaching, std::vector<MorphJob> & jobs);
+	void RunJobs(TESObjectREFR * refr, std::vector<MorphJob> & jobs, std::chrono::steady_clock::time_point start);
 
 	size_t memoryLimit;
 	size_t totalMemory;
+	std::vector<UInt8> m_vertexBlocks;
 };
 
 class NIOVTaskUpdateModelWeight : public TaskDelegate
@@ -271,11 +290,12 @@ public:
 	virtual void Run();
 	virtual void Dispose();
 
-	NIOVTaskUpdateSkinPartition(NiSkinInstance * skinInstance, NiSkinPartition * partition, bool gpuCopy = false, bool rebindDynamic = false);
+	NIOVTaskUpdateSkinPartition(NiSkinInstance * skinInstance, NiSkinPartition * partition, bool gpuCopy = false, bool rebindDynamic = false, const UInt8 * vertexBlock = nullptr);
 
 private:
 	NiPointer<NiSkinPartition>	m_partition;
 	NiPointer<NiSkinInstance>	m_skinInstance;
+	const UInt8 * m_vertexBlock;
 	bool m_copyGPU;
 	bool m_rebindDynamic;
 };
@@ -409,6 +429,7 @@ public:
 	void PrintDiagnostics();
 
 	void ForEachMorphShapeCallback(std::function<void(IBodyMorphInterface::MorphShapeCallback)> func);
+	MorphFactors GetMorphFactors(TESObjectREFR * actor);
 
 private:
 	void GetFilteredNPCList(std::vector<TESNPC*> activeNPCs[], const ModInfo * modInfo, UInt32 gender, TESRace * raceFilter, absl::flat_hash_set<TESFaction*> factionList);

@@ -14,8 +14,8 @@
 #include <limits>
 #include <cctype>
 #include <random>
+#include <immintrin.h>
 #include <ppl.h>
-#include <ppltasks.h>
 
 #include "skse64/PluginAPI.h"
 #include "skse64/GameReferences.h"
@@ -47,6 +47,7 @@ extern bool								g_enableBodyMorph;
 extern bool								g_enableBodyNormalRecalculate;
 extern bool								g_bodyMorphGPUCopy;
 extern bool								g_bodyMorphRebind;
+extern bool								g_logMorphTiming;
 
 skee_u32 BodyMorphInterface::GetVersion()
 {
@@ -210,6 +211,29 @@ bool BodyMorphInterface::Impl_HasBodyMorph(TESObjectREFR * actor, SKEEFixedStrin
 	return false;
 }
 
+static float CombineMorphValues(const absl::flat_hash_map<StringTableItem, float> & values)
+{
+	float morphSum = 0;
+	for (auto & morph : values)
+	{
+		if (g_bodyMorphMode == 2 && morph.second > morphSum)
+		{
+			morphSum = morph.second;
+		}
+		else
+		{
+			morphSum += morph.second;
+		}
+	}
+
+	if (g_bodyMorphMode == 1)
+	{
+		morphSum /= values.size();
+	}
+
+	return morphSum;
+}
+
 float BodyMorphInterface::Impl_GetBodyMorphs(TESObjectREFR * actor, SKEEFixedString morphName)
 {
 	SimpleLocker locker(&actorMorphs.m_lock);
@@ -219,29 +243,31 @@ float BodyMorphInterface::Impl_GetBodyMorphs(TESObjectREFR * actor, SKEEFixedStr
 		auto mit = it->second.find(g_stringTable.GetString(morphName));
 		if (mit != it->second.end())
 		{
-			float morphSum = 0;
-			for (auto & morph : mit->second)
-			{
-				if (g_bodyMorphMode == 2 && morph.second > morphSum)
-				{
-					morphSum = morph.second;
-				}
-				else
-				{
-					morphSum += morph.second;
-				}
-			}
-
-			if (g_bodyMorphMode == 1)
-			{
-				morphSum /= mit->second.size();
-			}
-
-			return morphSum;
+			return CombineMorphValues(mit->second);
 		}
 	}
 
 	return 0.0;
+}
+
+MorphFactors BodyMorphInterface::GetMorphFactors(TESObjectREFR * actor)
+{
+	MorphFactors factors;
+
+	SimpleLocker locker(&actorMorphs.m_lock);
+	auto it = actorMorphs.m_data.find(actor->formID);
+	if (it != actorMorphs.m_data.end())
+	{
+		factors.reserve(it->second.size());
+		for (auto & morph : it->second)
+		{
+			float factor = CombineMorphValues(morph.second);
+			if (factor != 0.0f)
+				factors.emplace_back(morph.first, factor);
+		}
+	}
+
+	return factors;
 }
 
 bool BodyMorphInterface::Impl_HasBodyMorphKey(TESObjectREFR * actor, SKEEFixedString morphKey)
@@ -387,9 +413,9 @@ void TriShapePackedVertexData::ApplyMorphRaw(UInt16 vertCount, void * data, floa
 		for (const auto & vert : m_vertexDeltas)
 		{
 			UInt32 vertexIndex = vert.index;
-			vertices[vertexIndex].x += (float)vert.delta.m128_f32[0] * factor;
-			vertices[vertexIndex].y += (float)vert.delta.m128_f32[1] * factor;
-			vertices[vertexIndex].z += (float)vert.delta.m128_f32[2] * factor;
+			vertices[vertexIndex].x += (float)vert.x * m_multiplier * factor;
+			vertices[vertexIndex].y += (float)vert.y * m_multiplier * factor;
+			vertices[vertexIndex].z += (float)vert.z * m_multiplier * factor;
 		}
 	}
 	else
@@ -405,10 +431,15 @@ void TriShapePackedVertexData::ApplyMorph(UInt16 vertexCount, Layout * vertexDat
 
 	if (m_maxIndex < vertexCount)
 	{
+		const __m128 scale = _mm_set1_ps(factor * m_multiplier);
 		for (const auto & vert : m_vertexDeltas)
 		{
-			DirectX::XMFLOAT4 * position = reinterpret_cast<DirectX::XMFLOAT4*>(&vertexData->vertexData[vertexSize * vert.index + offset]);
-			DirectX::XMStoreFloat4(position, DirectX::XMVectorAdd(DirectX::XMLoadFloat4(position), DirectX::XMVectorScale(vert.delta, factor)));
+			float * position = reinterpret_cast<float*>(&vertexData->vertexData[vertexSize * vert.index + offset]);
+
+			// Widens index, x, y, z and shifts the index out, so the fourth float (bitangent x) gets nothing added
+			const __m128i widened = _mm_cvtepi16_epi32(_mm_loadl_epi64(reinterpret_cast<const __m128i*>(&vert)));
+			const __m128 delta = _mm_cvtepi32_ps(_mm_srli_si128(widened, 4));
+			_mm_storeu_ps(position, _mm_add_ps(_mm_loadu_ps(position), _mm_mul_ps(delta, scale)));
 		}
 	}
 	else
@@ -461,30 +492,6 @@ void TriShapePackedUVData::ApplyMorph(UInt16 vertexCount, Layout * vertexData, f
 	}
 }
 
-void BodyMorphMap::ApplyMorphs(TESObjectREFR * refr, std::function<void(const TriShapeVertexDataPtr, float)> vertexFunctor, std::function<void(const TriShapeVertexDataPtr, float)> uvFunctor) const
-{
-	for (auto & morph : *this)
-	{
-		float morphFactor = g_bodyMorphInterface.GetBodyMorphs(refr, morph.first.c_str());
-		if(vertexFunctor && morph.second.first)
-			vertexFunctor(morph.second.first, morphFactor);
-		if (uvFunctor && morph.second.second)
-			uvFunctor(morph.second.second, morphFactor);
-	}
-}
-
-bool BodyMorphMap::HasMorphs(TESObjectREFR * refr) const
-{
-	for (auto & morph : *this)
-	{
-		float morphFactor = g_bodyMorphInterface.GetBodyMorphs(refr, morph.first.c_str());
-		if (morphFactor != 0.0f)
-			return true;
-	}
-
-	return false;
-}
-
 void BodyMorphMap::ForEachMorph(std::function<void(const SKEEFixedString&, const std::pair<TriShapeVertexDataPtr, TriShapeVertexDataPtr>&)> functor) const
 {
 	for (auto& morph : *this)
@@ -498,133 +505,225 @@ void BodyMorphMap::ForEachMorph(std::function<void(const SKEEFixedString&, const
 #include <d3d11.h>
 #include <d3d11_4.h>
 
-std::vector<NIOVTaskUpdateSkinPartition*> MorphFileCache::ApplyMorph(TESObjectREFR * refr, NiAVObject * rootNode, bool isAttaching, const std::pair<SKEEFixedString, BodyMorphMap> & bodyMorph)
+const MorphKernel::Topology * BodyMorphMap::GetTopology(const UInt8 * vertices, UInt32 vertexCount, const MorphKernel::VertexLayout & layout, const std::vector<MorphKernel::TriangleRun> & triangles, const std::vector<UInt16> & lockedVertices) const
 {
-	std::vector<NIOVTaskUpdateSkinPartition*> partitionUpdates;
-	auto execMorphUpdate = [&](NiPointer<BSGeometry> bodyGeometry)
+	std::lock_guard<std::mutex> guard(m_topologies->lock);
+
+	for (const auto & mesh : m_topologies->meshes)
 	{
-		NiPointer<NiSkinInstance> skinInstance = niptr_cast<NiSkinInstance>(bodyGeometry->m_spSkinInstance);
-		if (skinInstance) {
-			NiPointer<NiSkinPartition> skinPartition = niptr_cast<NiSkinPartition>(skinInstance->m_spSkinPartition);
-			if (skinPartition) {
-				// Undo morphs on the old shape
-				NiPointer<NiBinaryExtraData> bodyData = (NiBinaryExtraData*)NifUtils::GetExtraData(bodyGeometry, "SHAPEDATA");
+		if (mesh->Matches(vertices, vertexCount, layout, triangles, lockedVertices))
+			return mesh.get();
+	}
 
-				bool existingMorphs = !isAttaching && bodyData;
+	m_topologies->meshes.push_back(std::make_unique<MorphKernel::Topology>(vertices, vertexCount, layout, triangles, lockedVertices));
+	return m_topologies->meshes.back().get();
+}
 
-				// Apply new morphs to new shape
-				if (bodyMorph.second.HasMorphs(refr) || existingMorphs)
-				{
-					if (skinPartition)
-					{
-						NiSkinPartition* newSkinPartition = nullptr;
-						NifUtils::DeepCopy(skinPartition, (NiObject**)&newSkinPartition);
+// One shape of an actor, collected and published on the main thread. Compute can run anywhere because it only
+// writes to its own block, which keeps everything the game reads whole until Publish swaps it in.
+struct MorphJob
+{
+	NiPointer<NiAVObject>			rootNode;
+	NiPointer<BSGeometry>			geometry;
+	NiPointer<NiSkinInstance>		skinInstance;
+	NiPointer<NiSkinPartition>		partition;
+	NiPointer<NiBinaryExtraData>	bodyData;
+	const BodyMorphMap *			morphs = nullptr;
+	bool							isAttaching = false;
 
-						// Reset the Vertices directly
-						if (bodyData && newSkinPartition)
-						{
-							if (!isAttaching)
-							{
-								// Overwrite the vertex data with the original source data
-								for (UInt32 p = 0; p < newSkinPartition->m_uiPartitions; ++p)
-								{
-									auto& partition = newSkinPartition->m_pkPartitions[p];
-									UInt32 vertexSize = newSkinPartition->GetVertexSize(partition.vertexDesc);
+	UInt8 *				block = nullptr;
+	UInt32				blockSize = 0;
+	NiSkinPartition *	copy = nullptr;	// DeepCopy started refcount at 1
+	bool				computed = false;
 
-									memcpy(partition.shapeData->m_RawVertexData, bodyData->m_data, newSkinPartition->vertexCount * vertexSize);
-								}
-							}
-						}
+	// A clone of a model shares its partition with the model and all the other clones. Once copied it is held
+	// by the skin instance alone, and can be written over from then on rather than copied again.
+	bool IsPartitionShared() const
+	{
+		if (partition->m_uiRefCount > 2) // The skin instance and this job
+			return true;
 
-						if (newSkinPartition)
-						{
-							// No existing morphs, copy the current vertex block
-							if (!bodyData) {
-								auto& partition = newSkinPartition->m_pkPartitions[0];
-								UInt32 vertexSize = newSkinPartition->GetVertexSize(partition.vertexDesc);
-
-								bodyData = NiBinaryExtraData::Create("SHAPEDATA", reinterpret_cast<char*>(partition.shapeData->m_RawVertexData), newSkinPartition->vertexCount * vertexSize);
-								bodyGeometry->AddExtraData(bodyData);
-							}
-
-							if (bodyData)
-							{
-								auto& partition = newSkinPartition->m_pkPartitions[0];
-								UInt32 vertexSize = newSkinPartition->GetVertexSize(partition.vertexDesc);
-								UInt32 vertexCount = newSkinPartition->vertexCount;
-								TriShapeVertexData::Layout layout;
-								layout.vertexDesc = partition.shapeData->m_VertexDesc;
-								layout.vertexData = partition.shapeData->m_RawVertexData;
-
-								std::function<void(const TriShapeVertexDataPtr, float)> vertexMorpher = [&](const TriShapeVertexDataPtr morphData, float morphFactor)
-								{
-									if (morphFactor != 0.0f)
-									{
-										morphData->ApplyMorph(vertexCount, &layout, morphFactor);
-									}
-								};
-
-								std::function<void(const TriShapeVertexDataPtr, float)> uvMorpher = [&](const TriShapeVertexDataPtr morphData, float morphFactor)
-								{
-									if (morphFactor != 0.0f)
-									{
-										morphData->ApplyMorph(vertexCount, &layout, morphFactor);
-									}
-								};
-
-								// Applies all morphs for this shape
-								bodyMorph.second.ApplyMorphs(refr, vertexMorpher, bodyMorph.second.HasUV() ? uvMorpher : nullptr);
-
-								if (g_enableBodyNormalRecalculate)
-								{
-									NormalApplicator applicator(bodyGeometry, newSkinPartition);
-									applicator.Apply();
-								}
-
-								g_bodyMorphInterface.ForEachMorphShapeCallback([&](IBodyMorphInterface::MorphShapeCallback cb)
-								{
-									cb(refr, rootNode, bodyGeometry, skinPartition, bodyData);
-								});
-
-								// Propagate the data to the other partitions
-								for (UInt32 p = 1; p < newSkinPartition->m_uiPartitions; ++p)
-								{
-									auto& pPartition = newSkinPartition->m_pkPartitions[p];
-									memcpy(pPartition.shapeData->m_RawVertexData, partition.shapeData->m_RawVertexData, newSkinPartition->vertexCount * vertexSize);
-								}
-
-								partitionUpdates.push_back(new NIOVTaskUpdateSkinPartition(skinInstance, newSkinPartition, g_bodyMorphGPUCopy, g_bodyMorphRebind));
-								newSkinPartition->DecRef(); // DeepCopy started refcount at 1, passed ownership to the task
-							}
-						}
-					}
-				}
-			}
+		for (UInt32 p = 0; p < partition->m_uiPartitions; ++p)
+		{
+			if (partition->m_pkPartitions[p].shapeData->m_RefCount > partition->m_uiPartitions)
+				return true;
 		}
+
+		return false;
+	}
+
+	// Only for what the kernel can read, anything else goes through NormalApplicator
+	const MorphKernel::Topology * FindTopology() const
+	{
+		BSTriShape * triShape = ni_cast(geometry, BSTriShape);
+		if (!triShape || ni_cast(geometry, BSDynamicTriShape) || morphs->HasUV()) // UV morphs would outdate the cached UV terms
+			return nullptr;
+
+		const UInt32 required = VF_VERTEX | VF_UV | VF_NORMAL | VF_TANGENT;
+		const UInt32 flags = NiSkinPartition::GetVertexFlags(geometry->vertexDesc);
+		const UInt32 vertexSize = NiSkinPartition::GetVertexSize(geometry->vertexDesc);
+		const UInt32 vertexCount = partition->vertexCount;
+		if ((flags & required) != required || (flags & VF_UV_2) || triShape->numVertices != vertexCount || vertexSize * vertexCount != blockSize)
+			return nullptr;
+
+		std::vector<MorphKernel::TriangleRun> triangles;
+		for (UInt32 p = 0; p < partition->m_uiPartitions; ++p)
+		{
+			auto & pPartition = partition->m_pkPartitions[p];
+			triangles.push_back({ pPartition.m_pusTriList, pPartition.m_usTriangles });
+		}
+
+		std::vector<UInt16> lockedVertices;
+		if (NiIntegersExtraData * extraData = static_cast<NiIntegersExtraData*>(NifUtils::GetExtraData(geometry, "LOCKEDNORM")))
+		{
+			lockedVertices.reserve(extraData->m_size);
+			for (UInt32 i = 0; i < extraData->m_size; ++i)
+				lockedVertices.push_back(static_cast<UInt16>(extraData->m_data[i]));
+		}
+
+		return morphs->GetTopology(block, vertexCount, { vertexSize, 16, 20, 24 }, triangles, lockedVertices);
+	}
+
+	void Compute(const MorphFactors & factors)
+	{
+		struct ActiveMorph
+		{
+			TriShapeVertexData * vertices;
+			TriShapeVertexData * uvs;
+			float factor;
+		};
+
+		std::vector<ActiveMorph> active;
+		for (auto & factor : factors)
+		{
+			auto it = morphs->find(*factor.first);
+			if (it != morphs->end())
+				active.push_back({ it->second.first.get(), morphs->HasUV() ? it->second.second.get() : nullptr, factor.second });
+		}
+
+		// Nothing to apply, and nothing to undo on the old shape
+		const bool existingMorphs = !isAttaching && bodyData;
+		if (active.empty() && !existingMorphs)
+			return;
+
+		auto & firstPartition = partition->m_pkPartitions[0];
+		memcpy(block, existingMorphs ? reinterpret_cast<UInt8*>(bodyData->m_data) : firstPartition.shapeData->m_RawVertexData, blockSize);
+
+		const MorphKernel::Topology * topology = g_enableBodyNormalRecalculate ? FindTopology() : nullptr;
+
+		TriShapeVertexData::Layout layout;
+		layout.vertexDesc = firstPartition.shapeData->m_VertexDesc;
+		layout.vertexData = block;
+
+		for (auto & morph : active)
+		{
+			if (morph.vertices)
+				morph.vertices->ApplyMorph(partition->vertexCount, &layout, morph.factor);
+			if (morph.uvs)
+				morph.uvs->ApplyMorph(partition->vertexCount, &layout, morph.factor);
+		}
+
+		if (topology)
+		{
+			static thread_local MorphKernel::Scratch scratch;
+			topology->Recalculate(block, scratch);
+		}
+		else if (g_enableBodyNormalRecalculate)
+		{
+			NormalApplicator applicator(geometry, partition, block);
+			applicator.Apply();
+		}
+
+		if (IsPartitionShared())
+		{
+			NifUtils::DeepCopy(partition, (NiObject**)&copy);
+			if (!copy)
+				return;
+		}
+
+		computed = true;
+	}
+
+	void Publish(TESObjectREFR * refr)
+	{
+		if (!computed)
+			return;
+
+		// No existing morphs, keep the current vertex block
+		if (!bodyData)
+		{
+			auto & firstPartition = partition->m_pkPartitions[0];
+			bodyData = NiBinaryExtraData::Create("SHAPEDATA", reinterpret_cast<char*>(firstPartition.shapeData->m_RawVertexData), blockSize);
+			geometry->AddExtraData(bodyData);
+		}
+
+		g_bodyMorphInterface.ForEachMorphShapeCallback([&](IBodyMorphInterface::MorphShapeCallback cb)
+		{
+			cb(refr, rootNode, geometry, partition, bodyData);
+		});
+
+		NIOVTaskUpdateSkinPartition update(skinInstance, copy ? copy : partition.get(), g_bodyMorphGPUCopy, g_bodyMorphRebind, block);
+		update.Run();
+
+		if (copy)
+			copy->DecRef(); // Ownership passed to the skin instance
+	}
+};
+
+void MorphFileCache::CollectJobs(NiAVObject * rootNode, bool isAttaching, std::vector<MorphJob> & jobs)
+{
+	auto addJob = [&](BSGeometry * geometry, const BodyMorphMap & morphs)
+	{
+		// Armor covering several biped slots comes up once per slot
+		for (auto & job : jobs)
+		{
+			if (job.geometry.get() == geometry)
+				return;
+		}
+
+		NiPointer<NiSkinInstance> skinInstance = niptr_cast<NiSkinInstance>(geometry->m_spSkinInstance);
+		if (!skinInstance)
+			return;
+
+		NiPointer<NiSkinPartition> skinPartition = niptr_cast<NiSkinPartition>(skinInstance->m_spSkinPartition);
+		if (!skinPartition || !skinPartition->m_uiPartitions)
+			return;
+
+		MorphJob job;
+		job.rootNode = rootNode;
+		job.geometry = geometry;
+		job.skinInstance = skinInstance;
+		job.partition = skinPartition;
+		job.bodyData = (NiBinaryExtraData*)NifUtils::GetExtraData(geometry, "SHAPEDATA");
+		job.morphs = &morphs;
+		job.isAttaching = isAttaching;
+		job.blockSize = skinPartition->vertexCount * skinPartition->GetVertexSize(skinPartition->m_pkPartitions[0].vertexDesc);
+		jobs.push_back(std::move(job));
 	};
 
-	BSGeometry* geometry = rootNode->GetAsBSGeometry();
-	if (geometry)
+	auto findMorphs = [&](BSGeometry * geometry)
 	{
-		execMorphUpdate(geometry);
-	}
-	else
+		return vertexMap.find(SKEEFixedString(geometry->m_name ? geometry->m_name : ""));
+	};
+
+	if (BSGeometry * geometry = rootNode->GetAsBSGeometry())
 	{
-		BSFixedString nodeName = bodyMorph.first.c_str();
-		VisitObjects(rootNode, [&](NiAVObject* object)
-		{
-			if (BSGeometry* bodyGeometry = object->GetAsBSGeometry())
-			{
-				if (bodyGeometry->m_name == nodeName.data)
-				{
-					execMorphUpdate(bodyGeometry);
-				}
-			}
-			return false;
-		});
+		// The root is the one shape there is, whatever its name
+		auto it = findMorphs(geometry);
+		addJob(geometry, it != vertexMap.end() ? it->second : vertexMap.begin()->second);
+		return;
 	}
 
-	return partitionUpdates;
+	VisitObjects(rootNode, [&](NiAVObject * object)
+	{
+		if (BSGeometry * geometry = object->GetAsBSGeometry())
+		{
+			auto it = findMorphs(geometry);
+			if (it != vertexMap.end())
+				addJob(geometry, it->second);
+		}
+		return false;
+	});
 }
 
 void MorphFileCache::ForEachShape(std::function<void(const SKEEFixedString&, const BodyMorphMap&)> functor) const
@@ -632,50 +731,6 @@ void MorphFileCache::ForEachShape(std::function<void(const SKEEFixedString&, con
 	for (auto it : vertexMap)
 	{
 		functor(it.first, it.second);
-	}
-}
-
-void MorphFileCache::ApplyMorphs(TESObjectREFR * refr, NiAVObject * rootNode, bool isAttaching)
-{
-	using namespace concurrency;
-	using namespace std;
-
-#ifdef _DEBUG
-	auto skeleton = GetRootNode(rootNode);
-	_DMESSAGE("%s - Applying morphs to reference %s (%08X) on node %s [%p] of skeleton %s [%p]", __FUNCTION__, CALL_MEMBER_FN(refr, GetReferenceName)(), refr->formID, rootNode->m_name ? rootNode->m_name : "", (void*)rootNode, skeleton->m_name, (void*)skeleton.get());
-#endif
-
-	vector<NIOVTaskUpdateSkinPartition*> partitionUpdates;
-	if (g_parallelMorphing)
-	{
-		vector<task<vector<NIOVTaskUpdateSkinPartition*>>> tasks;
-		for (const auto& it : vertexMap)
-		{
-			tasks.push_back(create_task([&]() { return ApplyMorph(refr, rootNode, isAttaching, it); }));
-		}
-
-		auto joinTask = when_all(begin(tasks), end(tasks));
-		joinTask.wait();
-
-		for (auto& task : tasks)
-		{
-			auto results = task.get();
-			partitionUpdates.insert(partitionUpdates.end(), results.begin(), results.end());
-		}
-	}
-	else
-	{
-		for (const auto& it : vertexMap)
-		{
-			auto results = ApplyMorph(refr, rootNode, isAttaching, it);
-			partitionUpdates.insert(partitionUpdates.end(), results.begin(), results.end());
-		}
-	}
-
-	for (auto update : partitionUpdates)
-	{
-		update->Run();
-		update->Dispose();
 	}
 }
 
@@ -703,10 +758,8 @@ void MorphCache::ApplyMorphs(TESObjectREFR * refr, NiAVObject * rootNode, bool i
 	});
 }
 
-void MorphCache::ApplyMorphsNow(TESObjectREFR * refr, NiAVObject * rootNode, bool isAttaching)
+void MorphCache::CollectJobs(NiAVObject * rootNode, bool isAttaching, std::vector<MorphJob> & jobs)
 {
-	SimpleLocker locker(&m_lock);
-
 	MorphFileCache * fileCache = nullptr;
 
 	// Find the BODYTRI and cache it
@@ -726,7 +779,67 @@ void MorphCache::ApplyMorphsNow(TESObjectREFR * refr, NiAVObject * rootNode, boo
 	});
 
 	if (fileCache && !fileCache->vertexMap.empty())
-		fileCache->ApplyMorphs(refr, rootNode, isAttaching);
+		fileCache->CollectJobs(rootNode, isAttaching, jobs);
+}
+
+void MorphCache::RunJobs(TESObjectREFR * refr, std::vector<MorphJob> & jobs, std::chrono::steady_clock::time_point start)
+{
+	if (jobs.empty())
+		return;
+
+	const auto collected = std::chrono::steady_clock::now();
+
+	// Morph callbacks can land back here, a nested run then simply starts with no blocks of its own
+	std::vector<UInt8> blocks = std::move(m_vertexBlocks);
+
+	size_t totalSize = 0;
+	for (auto & job : jobs)
+		totalSize += job.blockSize;
+	blocks.resize(totalSize);
+
+	UInt8 * block = blocks.data();
+	for (auto & job : jobs)
+	{
+		job.block = block;
+		block += job.blockSize;
+	}
+
+	const MorphFactors factors = g_bodyMorphInterface.GetMorphFactors(refr);
+
+	if (g_parallelMorphing)
+		concurrency::parallel_for(size_t(0), jobs.size(), [&](size_t i) { jobs[i].Compute(factors); });
+	else
+		for (auto & job : jobs)
+			job.Compute(factors);
+
+	const auto computed = std::chrono::steady_clock::now();
+
+	UInt32 copies = 0;
+	for (auto & job : jobs)
+	{
+		copies += job.copy ? 1 : 0;
+		job.Publish(refr);
+	}
+
+	m_vertexBlocks = std::move(blocks);
+
+	if (g_logMorphTiming)
+	{
+		const auto milliseconds = [](auto from, auto to) { return std::chrono::duration<double, std::milli>(to - from).count(); };
+		_MESSAGE("%s - %08X: %u shapes, %u copied, %u factors, collect %.3f ms, compute %.3f ms, publish %.3f ms", __FUNCTION__, refr->formID, (UInt32)jobs.size(), copies, (UInt32)factors.size(),
+			milliseconds(start, collected), milliseconds(collected, computed), milliseconds(computed, std::chrono::steady_clock::now()));
+	}
+}
+
+void MorphCache::ApplyMorphsNow(TESObjectREFR * refr, NiAVObject * rootNode, bool isAttaching)
+{
+	const auto start = std::chrono::steady_clock::now();
+
+	SimpleLocker locker(&m_lock);
+
+	std::vector<MorphJob> jobs;
+	CollectJobs(rootNode, isAttaching, jobs);
+	RunJobs(refr, jobs, start);
 
 	Shrink();
 }
@@ -757,9 +870,15 @@ void MorphCache::UpdateMorphsNow(TESObjectREFR * refr)
 	if (!actor)
 		return;
 
+	const auto start = std::chrono::steady_clock::now();
+
+	SimpleLocker locker(&m_lock);
+
+	// Every shape of the actor goes into one run, so the workers get to spread out over all of them
+	std::vector<MorphJob> jobs;
 	VisitBipedNodes(refr, [&](bool isFirstPerson, UInt32 bipedIndex, NiNode* rootNode, TESForm* armo, TESForm* arma, NiAVObject* object)
 	{
-		ApplyMorphsNow(refr, object, false);
+		CollectJobs(object, false, jobs);
 	});
 
 	BSFixedString attachmentName(AttachmentInterface::ATTACHMENT_HOLDER);
@@ -768,9 +887,13 @@ void MorphCache::UpdateMorphsNow(TESObjectREFR * refr)
 		NiAVObject* attachmentNode = rootNode->GetObjectByName(&attachmentName.data);
 		if (attachmentNode)
 		{
-			ApplyMorphsNow(refr, attachmentNode, false);
+			CollectJobs(attachmentNode, false, jobs);
 		}
 	});
+
+	RunJobs(refr, jobs, start);
+
+	Shrink();
 }
 
 void MorphCache::ForEachMorphFile(std::function<void(const SKEEFixedString&, const MorphFileCache&)> functor) const
@@ -964,22 +1087,14 @@ bool MorphCache::CacheFile(const char * relativePath)
 				{
 					packedVertexData = std::make_shared<TriShapePackedVertexData>();
 					packedVertexData->m_multiplier = multiplier;
+					packedVertexData->m_vertexDeltas.resize(vertexNum);
 
-					for (UInt32 k = 0; k < vertexNum; k++)
+					trishapeMap.memoryUsage += binaryStream.Read((char *)packedVertexData->m_vertexDeltas.data(), vertexNum * sizeof(TriShapePackedVertexDelta));
+
+					for (const auto & delta : packedVertexData->m_vertexDeltas)
 					{
-						TriShapePackedVertexDelta vertexDelta;
-						SInt16 x, y, z;
-						trishapeMap.memoryUsage += binaryStream.Read((char *)&vertexDelta.index, sizeof(UInt16));
-						trishapeMap.memoryUsage += binaryStream.Read((char *)&x, sizeof(SInt16));
-						trishapeMap.memoryUsage += binaryStream.Read((char *)&y, sizeof(SInt16));
-						trishapeMap.memoryUsage += binaryStream.Read((char *)&z, sizeof(SInt16));
-
-						vertexDelta.delta = DirectX::XMVectorScale(DirectX::XMVectorSet(x, y, z, 0), multiplier);
-
-						if (vertexDelta.index > packedVertexData->m_maxIndex)
-							packedVertexData->m_maxIndex = vertexDelta.index;
-
-						packedVertexData->m_vertexDeltas.push_back(vertexDelta);
+						if (delta.index > packedVertexData->m_maxIndex)
+							packedVertexData->m_maxIndex = delta.index;
 					}
 
 					vertexData = packedVertexData;
@@ -1164,10 +1279,11 @@ void NIOVTaskUpdateModelWeight::Run()
 	}
 }
 
-NIOVTaskUpdateSkinPartition::NIOVTaskUpdateSkinPartition(NiSkinInstance * skinInstance, NiSkinPartition * partition, bool gpuCopy, bool rebindDynamic)
+NIOVTaskUpdateSkinPartition::NIOVTaskUpdateSkinPartition(NiSkinInstance * skinInstance, NiSkinPartition * partition, bool gpuCopy, bool rebindDynamic, const UInt8 * vertexBlock)
 {
 	m_skinInstance = skinInstance;
 	m_partition = partition;
+	m_vertexBlock = vertexBlock;
 	m_copyGPU = gpuCopy;
 	m_rebindDynamic = rebindDynamic;
 }
@@ -1186,6 +1302,16 @@ void NIOVTaskUpdateSkinPartition::Run()
 		auto & partition = m_partition->m_pkPartitions[0];
 		UInt32 vertexSize = m_partition->GetVertexSize(partition.vertexDesc);
 		UInt32 vertexCount = m_partition->vertexCount;
+
+		if (m_vertexBlock)
+		{
+			for (UInt32 p = 0; p < m_partition->m_uiPartitions; ++p)
+			{
+				UInt8 * vertices = m_partition->m_pkPartitions[p].shapeData->m_RawVertexData;
+				if (p == 0 || vertices != partition.shapeData->m_RawVertexData)
+					memcpy(vertices, m_vertexBlock, vertexCount * vertexSize);
+			}
+		}
 
 		D3D11_BUFFER_DESC desc;
 		partition.shapeData->m_VertexBuffer->GetDesc(&desc);

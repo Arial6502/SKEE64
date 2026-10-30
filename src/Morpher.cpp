@@ -17,9 +17,10 @@ float round_v(float num)
 	return (num > 0.0) ? floor(num + 0.5) : ceil(num - 0.5);
 }
 
-NormalApplicator::NormalApplicator(NiPointer<BSGeometry> _geometry, NiPointer<NiSkinPartition> _skinPartition) 
+NormalApplicator::NormalApplicator(NiPointer<BSGeometry> _geometry, NiPointer<NiSkinPartition> _skinPartition, UInt8* _vertexBlock) 
 	: geometry(_geometry)
 	, skinPartition(_skinPartition)
+	, vertexBlock(_vertexBlock)
 {
 	
 }
@@ -67,7 +68,8 @@ void NormalApplicator::Apply()
 		}
 
 		UInt32 vertexSize = NiSkinPartition::GetVertexSize(vertexDesc);
-		UInt8* vertexBlock = reinterpret_cast<UInt8*>(skinPartition->m_pkPartitions[0].shapeData->m_RawVertexData);
+		if (!vertexBlock)
+			vertexBlock = reinterpret_cast<UInt8*>(skinPartition->m_pkPartitions[0].shapeData->m_RawVertexData);
 
 		if (dynamicTriShape)
 		{

@@ -15,7 +15,8 @@ class NiSkinPartition;
 class NormalApplicator
 {
 public:
-	NormalApplicator(NiPointer<BSGeometry> _geometry, NiPointer<NiSkinPartition> _skinPartition);
+	// Works on the first partition's vertices unless given a block of its own
+	NormalApplicator(NiPointer<BSGeometry> _geometry, NiPointer<NiSkinPartition> _skinPartition, UInt8* _vertexBlock = nullptr);
 
 	void Apply();
 
@@ -25,6 +26,7 @@ public:
 protected:
 	NiPointer<BSGeometry> geometry;
 	NiPointer<NiSkinPartition> skinPartition;
+	UInt8* vertexBlock;
 	absl::flat_hash_set<UInt16> lockedVertices;
 	std::vector<Morpher::Vector3> rawVertices;
 	std::vector<Morpher::Vector3> rawNormals;
