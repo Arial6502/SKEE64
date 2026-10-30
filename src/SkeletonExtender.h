@@ -18,7 +18,7 @@ public:
 	void Attach(TESObjectREFR * refr, NiNode * skeleton, NiAVObject * objectRoot);
 	NiNode * LoadTemplate(NiNode * parent, const char * path);
 	void AddTransforms(TESObjectREFR * refr, bool isFirstPerson, NiNode * skeleton, NiAVObject * objectRoot);
-	void ReadTransforms(TESObjectREFR * refr, const char * jsonData, bool isFirstPerson, bool isFemale, std::set<SKEEFixedString> & nodes, std::set<SKEEFixedString> & changes);
+	void ReadTransforms(TESObjectREFR * refr, const char * jsonData, bool isFirstPerson, bool isFemale, absl::btree_set<SKEEFixedString> & nodes, absl::btree_set<SKEEFixedString> & changes);
 
 	void AttachWhenLoaded(UInt32 attempt, UInt32 formId, TESObjectREFR * refr, bool isFirstPerson, NiPointer<NiNode> skeleton, NiPointer<NiNode> root, NiPointer<NiAVObject> object);
 

@@ -14,6 +14,11 @@
 #include "common/IErrors.h"
 #include "common/IDynamicCreate.h"
 #include "common/ISingleton.h"
+#include <absl/container/btree_map.h>
+#include <absl/container/btree_set.h>
+#include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
+#include <absl/container/node_hash_map.h>
 #include <winsock2.h>
 #include <Windows.h>
 

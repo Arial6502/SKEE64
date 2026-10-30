@@ -70,10 +70,10 @@ public:
 	void Save(SKSESerializationInterface * intfc, UInt32 kVersion);
 	bool Load(SKSESerializationInterface * intfc, UInt32 kVersion, const StringIdMap & stringTable);
 
-	using TextureMap = std::map<skee_i32, StringTableItem>;
-	using ColorMap = std::map<skee_i32, UInt32>;
-	using BlendMap = std::map<skee_i32, StringTableItem>;
-	using TypeMap = std::map<skee_i32, UInt8>;
+	using TextureMap = absl::btree_map<skee_i32, StringTableItem>;
+	using ColorMap = absl::btree_map<skee_i32, UInt32>;
+	using BlendMap = absl::btree_map<skee_i32, StringTableItem>;
+	using TypeMap = absl::btree_map<skee_i32, UInt8>;
 
 	class TintData
 	{
@@ -124,8 +124,8 @@ public:
 
 private:
 	std::mutex m_lock;
-	std::unordered_map<SInt32, TintData> m_tintData;
-	std::unordered_map<StringTableItem, StringTableItem> m_data;
+	absl::node_hash_map<SInt32, TintData> m_tintData;
+	absl::flat_hash_map<StringTableItem, StringTableItem> m_data;
 };
 
 
@@ -216,10 +216,10 @@ private:
 	virtual void OnAttach(TESObjectREFR * refr, TESObjectARMO * armor, TESObjectARMA * addon, NiAVObject * object, bool isFirstPerson, NiNode * skeleton, NiNode * root) override;
 };
 
-class DyeMap : public SafeDataHolder<std::unordered_map<UInt32, UInt32>>
+class DyeMap : public SafeDataHolder<absl::flat_hash_map<UInt32, UInt32>>
 {
 public:
-	typedef std::unordered_map<UInt32, UInt32> Data;
+	typedef absl::flat_hash_map<UInt32, UInt32> Data;
 
 	UInt32 GetDyeColor(TESForm * form);
 	bool IsValidDye(TESForm * form);

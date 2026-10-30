@@ -179,7 +179,7 @@ CDXMaterial::TestFunction CDXMaterial::GetTestMode() const
 
 D3D11_BLEND CDXMaterial::GetD3DBlendMode(AlphaFunction alphaFunc)
 {
-	static std::unordered_map<AlphaFunction, D3D11_BLEND> testMode = {
+	static absl::flat_hash_map<AlphaFunction, D3D11_BLEND> testMode = {
 		{ ALPHA_ONE, D3D11_BLEND_ONE },
 		{ ALPHA_ZERO, D3D11_BLEND_ZERO },
 		{ ALPHA_SRCCOLOR, D3D11_BLEND_SRC_COLOR },

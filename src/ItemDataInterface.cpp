@@ -700,7 +700,7 @@ void ItemAttributeData::TintData::Save(SKSESerializationInterface * intfc, UInt3
 		UInt8* type = nullptr;
 	};
 
-	std::unordered_map<SInt32, DataMap> layerMap;
+	absl::flat_hash_map<SInt32, DataMap> layerMap;
 	for (auto & element : m_colorMap)
 	{
 		layerMap[element.first].color = &element.second;
@@ -1131,7 +1131,7 @@ bool ItemDataInterface::Load(SKSESerializationInterface * intfc, UInt32 kVersion
 		return a->GetActor() < b->GetActor();
 	});
 
-	std::unordered_set<NIOVTaskUpdateItemDye*> uniqueTasks;
+	absl::flat_hash_set<NIOVTaskUpdateItemDye*> uniqueTasks;
 	std::unique_copy(m_loadQueue.begin(), m_loadQueue.end(), std::inserter(uniqueTasks, uniqueTasks.end()), [](NIOVTaskUpdateItemDye * a, NIOVTaskUpdateItemDye * b)
 	{
 		return a->GetActor() == b->GetActor() && a->GetRankID() == b->GetRankID();

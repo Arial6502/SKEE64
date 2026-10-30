@@ -14,30 +14,30 @@ class NiNode;
 class NiAVObject;
 class NiTransform;
 
-class NodeTransformKeys : public std::unordered_map<StringTableItem, OverrideRegistration<StringTableItem>>
+class NodeTransformKeys : public absl::node_hash_map<StringTableItem, OverrideRegistration<StringTableItem>>
 {
 public:
 	void Save(SKSESerializationInterface * intfc, UInt32 kVersion);
 	bool Load(SKSESerializationInterface * intfc, UInt32 kVersion, const StringIdMap & stringTable);
 };
 
-class NodeTransformRegistrationMapHolder : public SafeDataHolder<std::unordered_map<UInt32, MultiRegistration<MultiRegistration<NodeTransformKeys, 2>,2>>>
+class NodeTransformRegistrationMapHolder : public SafeDataHolder<absl::node_hash_map<UInt32, MultiRegistration<MultiRegistration<NodeTransformKeys, 2>,2>>>
 {
 	friend class NiTransformInterface;
 public:
-	typedef std::unordered_map<UInt32, MultiRegistration<MultiRegistration<NodeTransformKeys, 2>,2>> RegMap;
+	typedef absl::node_hash_map<UInt32, MultiRegistration<MultiRegistration<NodeTransformKeys, 2>,2>> RegMap;
 
 	void Save(SKSESerializationInterface * intfc, UInt32 kVersion);
 	bool Load(SKSESerializationInterface * intfc, UInt32 kVersion, UInt32 * outFormId, const StringIdMap & stringTable);
 };
 
 // Node names are hashed here due to some case where the node "NPC" gets overwritten for some unknown reason
-class NodeTransformCache : public SafeDataHolder<std::unordered_map<SKEEFixedString, std::unordered_map<SKEEFixedString, NiTransform>>>
+class NodeTransformCache : public SafeDataHolder<absl::node_hash_map<SKEEFixedString, absl::node_hash_map<SKEEFixedString, NiTransform>>>
 {
 	friend class NiTransformInterface;
 public:
-	typedef std::unordered_map<SKEEFixedString, NiTransform> NodeMap;
-	typedef std::unordered_map<SKEEFixedString, NodeMap> RegMap;
+	typedef absl::node_hash_map<SKEEFixedString, NiTransform> NodeMap;
+	typedef absl::node_hash_map<SKEEFixedString, NodeMap> RegMap;
 
 	NiTransform * GetBaseTransform(SKEEFixedString rootModel, SKEEFixedString nodeName, bool relative);
 };

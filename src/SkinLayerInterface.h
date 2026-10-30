@@ -36,35 +36,35 @@ enum class Target : UInt8
 	Hair
 };
 
-class LayerMap : public std::map<SInt32, Data>
+class LayerMap : public absl::btree_map<SInt32, Data>
 {
 public:
 	void Save(SKSESerializationInterface* intfc, UInt32 kVersion);
 	bool Load(SKSESerializationInterface* intfc, UInt32 kVersion, const StringIdMap& stringTable);
 };
 
-class TargetToLayer : public std::unordered_map<Target, LayerMap>
+class TargetToLayer : public absl::node_hash_map<Target, LayerMap>
 {
 public:
 	void Save(SKSESerializationInterface* intfc, UInt32 kVersion);
 	bool Load(SKSESerializationInterface* intfc, UInt32 kVersion, const StringIdMap& stringTable);
 };
 
-class PerspectiveToTarget : public std::unordered_map<bool, TargetToLayer>
+class PerspectiveToTarget : public absl::node_hash_map<bool, TargetToLayer>
 {
 public:
 	void Save(SKSESerializationInterface* intfc, UInt32 kVersion);
 	bool Load(SKSESerializationInterface* intfc, UInt32 kVersion, const StringIdMap& stringTable);
 };
 
-class GenderToPersepective : public std::unordered_map<bool, PerspectiveToTarget>
+class GenderToPersepective : public absl::node_hash_map<bool, PerspectiveToTarget>
 {
 public:
 	void Save(SKSESerializationInterface* intfc, UInt32 kVersion);
 	bool Load(SKSESerializationInterface* intfc, UInt32 kVersion, const StringIdMap& stringTable);
 };
 
-class ActorToGender : public std::unordered_map<UInt32, GenderToPersepective>
+class ActorToGender : public absl::node_hash_map<UInt32, GenderToPersepective>
 {
 public:
 	void Save(SKSESerializationInterface* intfc, UInt32 kVersion);

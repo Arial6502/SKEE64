@@ -418,7 +418,7 @@ void SKEE64Serialization_Load(SKSESerializationInterface * intfc)
 	UInt32 type, length, version;
 	bool error = false;
 
-	std::unordered_map<UInt32, StringTableItem> stringTable;
+	absl::flat_hash_map<UInt32, StringTableItem> stringTable;
 
 	if (g_skipCoSaveLoad)
 		_WARNING("%s - bSkipCoSaveLoad is set, ignoring all SKEE data in this save", __FUNCTION__);

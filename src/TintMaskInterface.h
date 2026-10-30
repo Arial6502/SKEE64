@@ -41,7 +41,7 @@ struct ShaderHasher
 	}
 };
 
-typedef std::unordered_map<NiPointer<BSLightingShaderProperty>, std::unordered_map<SInt32, std::shared_ptr<CDXNifTextureRenderer>>, ShaderHasher> TintMaskCacheMap;
+typedef absl::node_hash_map<NiPointer<BSLightingShaderProperty>, absl::flat_hash_map<SInt32, std::shared_ptr<CDXNifTextureRenderer>>, ShaderHasher> TintMaskCacheMap;
 
 class TintMaskMap : public SafeDataHolder<TintMaskCacheMap>
 {
@@ -57,12 +57,12 @@ private:
 	bool m_caching;
 };
 
-typedef std::unordered_map<SInt32, SKEEFixedString>	LayerTextureMap;
-typedef std::unordered_map<SInt32, SInt32>			LayerColorMap;
-typedef std::unordered_map<SInt32, float>			LayerAlphaMap;
-typedef std::unordered_map<SInt32, SKEEFixedString>	LayerBlendMap;
-typedef std::unordered_map<SInt32, UInt8>			TextureTypeMap;
-typedef std::unordered_multimap<SInt32, SInt32>		LayerSlotMap;
+typedef absl::flat_hash_map<SInt32, SKEEFixedString>	LayerTextureMap;
+typedef absl::flat_hash_map<SInt32, SInt32>			LayerColorMap;
+typedef absl::flat_hash_map<SInt32, float>			LayerAlphaMap;
+typedef absl::flat_hash_map<SInt32, SKEEFixedString>	LayerBlendMap;
+typedef absl::flat_hash_map<SInt32, UInt8>			TextureTypeMap;
+typedef absl::btree_multimap<SInt32, SInt32>		LayerSlotMap;
 
 struct TextureLayer
 {
@@ -75,14 +75,14 @@ struct TextureLayer
 };
 
 // maps diffuse names to layer data
-class TextureLayerMap : public std::unordered_map<SKEEFixedString, TextureLayer>
+class TextureLayerMap : public absl::node_hash_map<SKEEFixedString, TextureLayer>
 {
 public:
 	TextureLayer * GetTextureLayer(SKEEFixedString texture);
 };
 
 // maps trishape names to diffuse names
-class MaskTriShapeMap : public std::unordered_map<SKEEFixedString, TextureLayerMap>
+class MaskTriShapeMap : public absl::node_hash_map<SKEEFixedString, TextureLayerMap>
 {
 public:
 	TextureLayerMap * GetTextureMap(SKEEFixedString triShape);
@@ -95,7 +95,7 @@ protected:
 };
 
 
-typedef std::unordered_map<SKEEFixedString, MaskTriShapeMap> MaskModelContainer;
+typedef absl::node_hash_map<SKEEFixedString, MaskTriShapeMap> MaskModelContainer;
 
 // Maps model names to trishape names
 class MaskModelMap : public SafeDataHolder<MaskModelContainer>
@@ -161,12 +161,12 @@ public:
 
 	virtual bool IsDyeable(TESObjectARMO * armor);
 
-	virtual void GetTemplateColorMap(TESObjectREFR* actor, TESObjectARMO * armor, std::map<SInt32, UInt32>& colorMap);
-	virtual void GetSlotTextureIndexMap(TESObjectREFR* actor, TESObjectARMO* armor, std::map<SInt32, UInt32>& slotTextureIndexMap);
+	virtual void GetTemplateColorMap(TESObjectREFR* actor, TESObjectARMO * armor, absl::btree_map<SInt32, UInt32>& colorMap);
+	virtual void GetSlotTextureIndexMap(TESObjectREFR* actor, TESObjectARMO* armor, absl::btree_map<SInt32, UInt32>& slotTextureIndexMap);
 
 	virtual void LoadMods();
 
-	void CreateTintsFromData(TESObjectREFR * refr, std::map<SInt32, CDXNifTextureRenderer::MaskData> & masks, const LayerTarget & layerTarget, ItemAttributeDataPtr & overrides, UInt32 & flags);
+	void CreateTintsFromData(TESObjectREFR * refr, absl::btree_map<SInt32, CDXNifTextureRenderer::MaskData> & masks, const LayerTarget & layerTarget, ItemAttributeDataPtr & overrides, UInt32 & flags);
 	void ParseTintData(LPCTSTR filePath);
 
 protected:
@@ -181,7 +181,7 @@ private:
 	TintMaskMap		m_maskMap;
 
 	SimpleLock						m_dyeableLock;
-	std::unordered_map<UInt32, bool> m_dyeable;
+	absl::flat_hash_map<UInt32, bool> m_dyeable;
 
 	// Inherited via BSTEventSink
 	virtual EventResult ReceiveEvent(SKSENiNodeUpdateEvent * evn, EventDispatcher<SKSENiNodeUpdateEvent>* dispatcher) override;

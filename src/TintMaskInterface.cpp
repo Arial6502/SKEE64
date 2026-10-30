@@ -41,7 +41,7 @@ skee_u32 TintMaskInterface::GetVersion()
 	return kCurrentPluginVersion;
 }
 
-void TintMaskInterface::CreateTintsFromData(TESObjectREFR * refr, std::map<SInt32, CDXNifTextureRenderer::MaskData> & masks, const LayerTarget & layerTarget, ItemAttributeDataPtr & overrides, UInt32 & flags)
+void TintMaskInterface::CreateTintsFromData(TESObjectREFR * refr, absl::btree_map<SInt32, CDXNifTextureRenderer::MaskData> & masks, const LayerTarget & layerTarget, ItemAttributeDataPtr & overrides, UInt32 & flags)
 {
 	UInt32 skinColor = 0;
 	UInt32 hairColor = 0;
@@ -252,7 +252,7 @@ void TintMaskInterface::ApplyMasks(TESObjectREFR * refr, bool isFirstPerson, TES
 				BSLightingShaderMaterial * material = (BSLightingShaderMaterial *)lightingShader->material;
 
 				UInt32 changedFlags = 0;
-				std::map<SInt32, CDXNifTextureRenderer::MaskData> tintMasks;
+				absl::btree_map<SInt32, CDXNifTextureRenderer::MaskData> tintMasks;
 				CreateTintsFromData(refr, tintMasks, layer, itemOverrideData, changedFlags);
 
 				// Must have selective update
@@ -638,7 +638,7 @@ void TintMaskInterface::VisitTemplateData(TESObjectREFR* refr, TESObjectARMO* ar
 	}
 }
 
-void TintMaskInterface::GetTemplateColorMap(TESObjectREFR* refr, TESObjectARMO * armor, std::map<SInt32, UInt32>& colorMap)
+void TintMaskInterface::GetTemplateColorMap(TESObjectREFR* refr, TESObjectARMO * armor, absl::btree_map<SInt32, UInt32>& colorMap)
 {
 	VisitTemplateData(refr, armor, [&](auto shapeMap)
 	{
@@ -694,7 +694,7 @@ void TintMaskInterface::GetTemplateColorMap(TESObjectREFR* refr, TESObjectARMO *
 }
 
 
-void TintMaskInterface::GetSlotTextureIndexMap(TESObjectREFR* refr, TESObjectARMO* armor, std::map<SInt32, UInt32>& slotTextureIndexMap)
+void TintMaskInterface::GetSlotTextureIndexMap(TESObjectREFR* refr, TESObjectARMO* armor, absl::btree_map<SInt32, UInt32>& slotTextureIndexMap)
 {
 	VisitTemplateData(refr, armor, [&](auto shapeMap)
 	{

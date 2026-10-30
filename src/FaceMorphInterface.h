@@ -111,10 +111,10 @@ public:
 };
 typedef std::shared_ptr<SliderGender> SliderGenderPtr;
 typedef std::vector<SliderInternalPtr> SliderList;
-typedef std::unordered_map<TESRace*, SliderList> RaceSliders;
+typedef absl::node_hash_map<TESRace*, SliderList> RaceSliders;
 typedef std::vector<SKEEFixedString> MorphSet;
 
-class MorphMap : public std::map<SKEEFixedString, MorphSet>
+class MorphMap : public absl::btree_map<SKEEFixedString, MorphSet>
 {
 public:
 	class Visitor
@@ -141,10 +141,10 @@ public:
 #endif
 };
 
-class SliderMap : public std::unordered_map<SKEEFixedString, SliderGenderPtr>
+class SliderMap : public absl::flat_hash_map<SKEEFixedString, SliderGenderPtr>
 {
 public:
-	SliderMap() : std::unordered_map<SKEEFixedString, SliderGenderPtr>(){ }
+	SliderMap() : absl::flat_hash_map<SKEEFixedString, SliderGenderPtr>(){ }
 
 	void AddSlider(const SKEEFixedString & key, UInt8 gender, SliderInternal & slider);
 
@@ -156,7 +156,7 @@ public:
 typedef std::shared_ptr<SliderMap>	SliderMapPtr;
 
 
-class SliderSet : public std::set<SliderMapPtr>
+class SliderSet : public absl::btree_set<SliderMapPtr>
 {
 public:
 	bool for_each_slider(std::function<bool(SliderGenderPtr)> func);
@@ -164,7 +164,7 @@ public:
 
 typedef std::shared_ptr<SliderSet> SliderSetPtr;
 
-class RaceMap : public std::unordered_map<TESRace*, SliderSetPtr>
+class RaceMap : public absl::flat_hash_map<TESRace*, SliderSetPtr>
 {
 public:
 	SliderSetPtr GetSliderSet(TESRace * race);
@@ -178,7 +178,7 @@ public:
 #endif
 };
 
-class ValueSet : public std::unordered_map<StringTableItem, float>
+class ValueSet : public absl::flat_hash_map<StringTableItem, float>
 {
 public:
 	void SetValue(const SKEEFixedString & name, float value);
@@ -186,7 +186,7 @@ public:
 	float GetValue(const SKEEFixedString & name);
 };
 
-class ValueMap : public std::unordered_map<TESNPC*, ValueSet>
+class ValueMap : public absl::node_hash_map<TESNPC*, ValueSet>
 {
 public:
 	ValueSet * GetValueSet(TESNPC* npc);
@@ -199,7 +199,7 @@ public:
 #define VERTEX_THRESHOLD 0.00001
 #define VERTEX_MULTIPLIER 10000
 
-class MappedSculptData : public std::unordered_map<UInt16, NiPoint3>
+class MappedSculptData : public absl::flat_hash_map<UInt16, NiPoint3>
 {
 public:
 	void force_insert(value_type const & v)
@@ -224,7 +224,7 @@ public:
 };
 typedef std::shared_ptr<MappedSculptData> MappedSculptDataPtr;
 
-class SculptData : public std::unordered_map<StringTableItem, MappedSculptDataPtr>
+class SculptData : public absl::flat_hash_map<StringTableItem, MappedSculptDataPtr>
 {
 public:
 	MappedSculptDataPtr GetSculptHost(SKEEFixedString, bool create = true);
@@ -233,7 +233,7 @@ public:
 };
 using SculptDataPtr = std::shared_ptr<SculptData>;
 
-class SculptStorage : public std::unordered_map < TESNPC*, SculptDataPtr >
+class SculptStorage : public absl::flat_hash_map < TESNPC*, SculptDataPtr >
 {
 public:
 	void SetSculptTarget(TESNPC * npc, SculptDataPtr sculptData);
@@ -266,7 +266,7 @@ public:
 	};
 
 	SInt32 vertexCount;
-	std::unordered_map<SKEEFixedString, Morph> morphs;
+	absl::node_hash_map<SKEEFixedString, Morph> morphs;
 };
 
 class TRIModelData
@@ -282,7 +282,7 @@ public:
 	TESModelTri * morphModel;
 };
 
-typedef std::unordered_map<SKEEFixedString, TRIModelData> ModelMap;
+typedef absl::node_hash_map<SKEEFixedString, TRIModelData> ModelMap;
 
 class FaceMorphInterface : public IPluginInterface
 {

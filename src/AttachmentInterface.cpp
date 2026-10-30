@@ -232,7 +232,7 @@ bool AttachmentInterface::AttachMesh(TESObjectREFR* ref, const char* path, const
 		}
 	}
 
-	std::unordered_set<BSFixedString> filteredNames;
+	absl::flat_hash_set<BSFixedString> filteredNames;
 	for (UInt32 i = 0; i < filterSize; ++i)
 	{
 		filteredNames.emplace(filter[i]);

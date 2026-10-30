@@ -303,7 +303,7 @@ void NiTransformInterface::RemoveInvalidTransforms(UInt32 formId)
 						SKEEFixedString ext(strKey.substr(strKey.find_last_of(".") + 1).c_str());
 						if (ext == SKEEFixedString("esp") || ext == SKEEFixedString("esm") || ext == SKEEFixedString("esl"))
 						{
-							it = ait.second.erase(it);
+							ait.second.erase(it++);
 						}
 						else
 							++it;
@@ -622,7 +622,7 @@ void NiTransformInterface::SetTransforms(UInt32 formId, bool immediate, bool res
 	auto it = transformData.m_data.find(formId); // Find ActorHandle
 	if (it != transformData.m_data.end())
 	{
-		std::unordered_map<NiAVObject*, NiNode*> nodeMovement;
+		absl::flat_hash_map<NiAVObject*, NiNode*> nodeMovement;
 		NiPointer<NiNode> lastNode = NULL;
 		for (UInt8 i = 0; i <= 1; i++)
 		{
@@ -635,7 +635,7 @@ void NiTransformInterface::SetTransforms(UInt32 formId, bool immediate, bool res
 			{
 				// Gather up skeleton extensions
 				std::vector<SKEEFixedString> additionalSkeletons;
-				std::set<SKEEFixedString> modified, changed;
+				absl::btree_set<SKEEFixedString> modified, changed;
 				VisitObjects(root, [&](NiAVObject * root)
 				{
 					NiPointer<NiExtraData> extraData = NifUtils::GetExtraData(root, "EXTN");
@@ -703,7 +703,7 @@ void NiTransformInterface::SetTransforms(UInt32 formId, bool immediate, bool res
 						NiTransform combinedTransform;
 						if (!reset) {
 							UInt16 scaleMode = g_scaleMode;
-							std::map<StringTableItem, OverrideSet*> scaleModes;
+							absl::btree_map<StringTableItem, OverrideSet*> scaleModes;
 							for (auto dit = ait->second.begin(); dit != ait->second.end(); ++dit) {
 								scaleModes.emplace(dit->first, &dit->second);
 							}

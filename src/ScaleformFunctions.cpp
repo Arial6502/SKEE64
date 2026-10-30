@@ -215,7 +215,7 @@ void SKSEScaleform_GetDyeableItems::Invoke(Args * args)
 					// we can only show one color so last shape wins
 					if (item.form->formType == TESObjectARMO::kTypeID)
 					{
-						std::map<SInt32, UInt32> colorMap;
+						absl::btree_map<SInt32, UInt32> colorMap;
 						g_tintMaskInterface.GetTemplateColorMap(actor, static_cast<TESObjectARMO*>(item.form), colorMap);
 
 						GFxValue baseArray;
@@ -378,7 +378,7 @@ void SKSEScaleform_SetItemDyeColor::Invoke(Args * args)
 		args->args[1].GetMember("weaponSlot", &param[5]);
 		identifier.weaponSlot = param[5].GetNumber();
 	}
-	std::map<SInt32, UInt32> slotTextureIndexMap;
+	absl::btree_map<SInt32, UInt32> slotTextureIndexMap;
 	UInt32 uniqueId = g_itemDataInterface.GetItemUniqueID(actor, identifier, true);
 	TESForm* dyedItem = g_itemDataInterface.GetFormFromUniqueID(uniqueId);
 	if (dyedItem && dyedItem->formType == TESObjectARMO::kTypeID)
@@ -444,7 +444,7 @@ void SKSEScaleform_SetItemDyeColors::Invoke(Args * args)
 		identifier.weaponSlot = param[5].GetNumber();
 	}
 
-	std::map<SInt32, UInt32> slotTextureIndexMap;
+	absl::btree_map<SInt32, UInt32> slotTextureIndexMap;
 	
 	UInt32 uniqueId = g_itemDataInterface.GetItemUniqueID(actor, identifier, true);
 	TESForm* dyedItem = g_itemDataInterface.GetFormFromUniqueID(uniqueId);

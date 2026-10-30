@@ -11,7 +11,7 @@
 class CDXD3DDevice;
 class CDXShaderFactory;
 
-class CDXPixelShaderCache : protected std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D11PixelShader>>
+class CDXPixelShaderCache : protected absl::flat_hash_map<std::string, Microsoft::WRL::ComPtr<ID3D11PixelShader>>
 {
 public:
 	explicit CDXPixelShaderCache(CDXShaderFactory * factory) : m_factory(factory) { }

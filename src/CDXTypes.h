@@ -33,8 +33,8 @@ typedef DirectX::XMFLOAT3		CDXVec3;
 typedef DirectX::XMFLOAT2		CDXVec2;
 typedef DirectX::XMFLOAT3		CDXColor;
 
-typedef std::set<CDXMeshIndex> CDXMeshIndexSet;
-typedef std::unordered_map<CDXMeshIndex, float> CDXHitIndexMap;
+typedef absl::btree_set<CDXMeshIndex> CDXMeshIndexSet;
+typedef absl::flat_hash_map<CDXMeshIndex, float> CDXHitIndexMap;
 
 struct CDXMeshEdge
 {

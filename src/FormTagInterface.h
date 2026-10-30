@@ -6,7 +6,7 @@
 #include <mutex>
 #include <vector>
 
-class FormTagMap : public SafeDataHolder<std::unordered_map<uint32_t, std::vector<SKEEFixedString>>>
+class FormTagMap : public SafeDataHolder<absl::flat_hash_map<uint32_t, std::vector<SKEEFixedString>>>
 {
 public:
 	friend class FormTagInterface;
@@ -18,7 +18,7 @@ struct PartTag
 	SKEEFixedString label;
 };
 
-class PartTagMap : public SafeDataHolder<std::unordered_map<uint32_t, std::vector<PartTag>>>
+class PartTagMap : public SafeDataHolder<absl::flat_hash_map<uint32_t, std::vector<PartTag>>>
 {
 public:
 	friend class FormTagInterface;

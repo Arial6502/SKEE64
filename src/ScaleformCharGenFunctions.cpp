@@ -456,7 +456,7 @@ void SKSEScaleform_GetSliderPartData::Invoke(Args* args)
 		object->PushBack(&partObject);
 	};
 
-	std::set<std::string> modSet;
+	absl::btree_set<std::string> modSet;
 
 	auto [raceMenu, slider] = GetRaceMenuSlider(sliderId);
 	if (raceMenu && slider)
@@ -1119,7 +1119,7 @@ void SKSEScaleform_CreateMorphEditor::Invoke(Args * args)
 		return;
 	}
 
-	std::set<BGSHeadPart*> extraParts; // Collect extra hair parts
+	absl::btree_set<BGSHeadPart*> extraParts; // Collect extra hair parts
 	BGSHeadPart * hairPart = actorBase->GetCurrentHeadPartByType(BGSHeadPart::kTypeHair);
 	if (hairPart) {
 		BGSHeadPart * extraPart = NULL;

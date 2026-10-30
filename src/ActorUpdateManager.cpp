@@ -271,7 +271,7 @@ void ActorUpdateManager::Flush()
 	std::lock_guard<std::recursive_mutex> scs(m_lock);
 	MainThreadTasks::Add(new SKSETaskApplyMorphs(*g_thePlayer));
 
-	std::unordered_set<UInt32> flushedSet;
+	absl::flat_hash_set<UInt32> flushedSet;
 	std::vector<UInt32> flushedForms;
 
 	for (UInt32 formId : m_bodyUpdates)

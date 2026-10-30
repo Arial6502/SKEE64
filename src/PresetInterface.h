@@ -49,18 +49,18 @@ public:
 	std::vector<Texture> faceTextures;
 	BGSTextureSet* headTexture;
 	BSFixedString tintTexture;
-	typedef std::map<SKEEFixedString, std::vector<OverrideVariant>> OverrideData;
+	typedef absl::btree_map<SKEEFixedString, std::vector<OverrideVariant>> OverrideData;
 	OverrideData overrideData;
-	typedef std::map<UInt32, std::vector<OverrideVariant>> SkinData;
+	typedef absl::btree_map<UInt32, std::vector<OverrideVariant>> SkinData;
 	SkinData skinData[2];
-	typedef std::map<SKEEFixedString, std::map<SKEEFixedString, std::vector<OverrideVariant>>> TransformData;
+	typedef absl::btree_map<SKEEFixedString, absl::btree_map<SKEEFixedString, std::vector<OverrideVariant>>> TransformData;
 	TransformData transformData[2];
 	SculptDataPtr sculptData;
-	typedef std::unordered_map<SKEEFixedString, std::unordered_map<SKEEFixedString, float>> BodyMorphData;
+	typedef absl::node_hash_map<SKEEFixedString, absl::flat_hash_map<SKEEFixedString, float>> BodyMorphData;
 	BodyMorphData bodyMorphData;
 };
 using PresetDataPtr = std::shared_ptr<PresetData>;
-class PresetMap : public SafeDataHolder<std::unordered_map<TESNPC*, PresetDataPtr>>
+class PresetMap : public SafeDataHolder<absl::flat_hash_map<TESNPC*, PresetDataPtr>>
 {
 public:
 	friend class PresetInterface;

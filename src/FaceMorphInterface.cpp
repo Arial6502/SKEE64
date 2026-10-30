@@ -768,7 +768,7 @@ void FaceMorphInterface::ReadRaces(std::string fixedPath, std::string modPath, s
 		return;
 	}
 
-	std::map<std::string, SliderMapPtr> fileMap;
+	absl::btree_map<std::string, SliderMapPtr> fileMap;
 
 	UInt32 lineCount = 0;
 	std::string str = "";
@@ -803,7 +803,7 @@ void FaceMorphInterface::ReadRaces(std::string fixedPath, std::string modPath, s
 			}
 
 			SliderMapPtr sliderMap = NULL;
-			std::map<std::string, SliderMapPtr>::iterator it = fileMap.find(files[i]);
+			absl::btree_map<std::string, SliderMapPtr>::iterator it = fileMap.find(files[i]);
 			if(it != fileMap.end()) {
 				sliderMap = it->second;
 			} else {

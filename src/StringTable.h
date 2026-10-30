@@ -87,7 +87,7 @@ namespace Serialization
 	template<> bool ReadData<SKEEFixedString>(const SKSESerializationInterface * intfc, SKEEFixedString * str);
 }
 
-typedef std::unordered_map<UInt32, StringTableItem> StringIdMap;
+typedef absl::flat_hash_map<UInt32, StringTableItem> StringIdMap;
 
 class StringTable
 {
@@ -143,7 +143,7 @@ public:
 	void PrintDiagnostics();
 
 private:
-	std::unordered_map<SKEEFixedString, WeakTableItem>	m_table;
+	absl::flat_hash_map<SKEEFixedString, WeakTableItem>	m_table;
 	std::vector<WeakTableItem>							m_tableVector;
 	mutable ICriticalSection							m_lock;
 };

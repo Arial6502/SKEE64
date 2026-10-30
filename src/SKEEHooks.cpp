@@ -924,7 +924,13 @@ void DoubleMorphCallback_Hook(RaceSexMenu * menu, float newValue, UInt32 sliderI
 // in the case somehow it is allocated elsewhere without the hook the destructor wont
 // crash the game and instead free the original pointer
 ICriticalSection g_cs;
-std::unordered_set<void*> g_adjustedBlocks;
+absl::flat_hash_set<void*> g_adjustedBlocks;
+
+bool IsAdjustedBlock(void* ptr)
+{
+	IScopedCriticalSection scs(&g_cs);
+	return g_adjustedBlocks.contains(ptr);
+}
 
 void * NiAllocate_Hooked(size_t size)
 {

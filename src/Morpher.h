@@ -25,7 +25,7 @@ public:
 protected:
 	NiPointer<BSGeometry> geometry;
 	NiPointer<NiSkinPartition> skinPartition;
-	std::unordered_set<UInt16> lockedVertices;
+	absl::flat_hash_set<UInt16> lockedVertices;
 	std::vector<Morpher::Vector3> rawVertices;
 	std::vector<Morpher::Vector3> rawNormals;
 	std::vector<Morpher::Vector2> rawUV;

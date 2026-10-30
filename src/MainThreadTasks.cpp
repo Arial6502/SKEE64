@@ -42,7 +42,7 @@ namespace MainThreadTasks
 
 	static std::mutex								s_lock;
 	static std::vector<std::function<void()>>		s_tasks;
-	static std::unordered_map<Key, size_t, KeyHash>	s_coalesced;
+	static absl::flat_hash_map<Key, size_t, KeyHash>	s_coalesced;
 	static std::vector<DelayedTask>					s_delayed;
 
 	bool IsMainThread()

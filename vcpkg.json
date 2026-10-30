@@ -4,9 +4,10 @@
   "version-string": "0.4.19.17",
   "description": "Skyrim 64 Engine Extender",
   "dependencies": [
+    "abseil",
     "directxtex",
+    "glaze",
     "half",
-    "jsoncpp",
     "spdlog",
     "tinyxml2"
   ]

@@ -59,7 +59,7 @@ public:
 	bool Load(SKSESerializationInterface * intfc, UInt32 kVersion, const StringIdMap & stringTable);
 };
 
-class BodyMorphSet : public std::set<BodyMorph>
+class BodyMorphSet : public absl::btree_set<BodyMorph>
 {
 public:
 	// Serialization
@@ -67,7 +67,7 @@ public:
 	bool Load(SKSESerializationInterface * intfc, UInt32 kVersion, const StringIdMap & stringTable);
 };
 
-class BodyMorphData : public std::unordered_map<StringTableItem, std::unordered_map<StringTableItem, float>>
+class BodyMorphData : public absl::node_hash_map<StringTableItem, absl::flat_hash_map<StringTableItem, float>>
 {
 public:
 	void Save(SKSESerializationInterface * intfc, UInt32 kVersion);
@@ -75,11 +75,11 @@ public:
 };
 
 typedef UInt32 MorphKey;
-class ActorMorphs : public SafeDataHolder<std::unordered_map<MorphKey, BodyMorphData>>
+class ActorMorphs : public SafeDataHolder<absl::node_hash_map<MorphKey, BodyMorphData>>
 {
 	friend class BodyMorphInterface;
 public:
-	typedef std::unordered_map<MorphKey, BodyMorphData>	MorphMap;
+	typedef absl::node_hash_map<MorphKey, BodyMorphData>	MorphMap;
 
 	// Serialization
 	void Save(SKSESerializationInterface * intfc, UInt32 kVersion);
@@ -175,7 +175,7 @@ public:
 typedef std::shared_ptr<TriShapePackedUVData> TriShapePackedUVDataPtr;
 
 
-class BodyMorphMap : public std::unordered_map<SKEEFixedString, std::pair<TriShapeVertexDataPtr, TriShapeVertexDataPtr>>
+class BodyMorphMap : public absl::flat_hash_map<SKEEFixedString, std::pair<TriShapeVertexDataPtr, TriShapeVertexDataPtr>>
 {
 	friend class MorphCache;
 public:
@@ -191,7 +191,7 @@ private:
 	bool m_hasUV;
 };
 
-class TriShapeMap : public std::unordered_map<SKEEFixedString, BodyMorphMap>
+class TriShapeMap : public absl::node_hash_map<SKEEFixedString, BodyMorphMap>
 {
 public:
 	TriShapeMap()
@@ -222,7 +222,7 @@ private:
 	std::time_t accessed;
 };
 
-class MorphCache : public SafeDataHolder<std::unordered_map<SKEEFixedString, MorphFileCache>>
+class MorphCache : public SafeDataHolder<absl::node_hash_map<SKEEFixedString, MorphFileCache>>
 {
 	friend class BodyMorphInterface;
 
@@ -233,7 +233,7 @@ public:
 		memoryLimit = totalMemory;
 	}
 
-	typedef std::unordered_map<SKEEFixedString, TriShapeMap>	FileMap;
+	typedef absl::node_hash_map<SKEEFixedString, TriShapeMap>	FileMap;
 
 	SKEEFixedString CreateTRIPath(const char * relativePath);
 	bool CacheFile(const char * modelPath);
@@ -308,7 +308,7 @@ public:
 typedef std::shared_ptr<BodyGenTemplate> BodyGenTemplatePtr;
 
 
-typedef std::unordered_map<SKEEFixedString, BodyGenTemplatePtr> BodyGenTemplates;
+typedef absl::flat_hash_map<SKEEFixedString, BodyGenTemplatePtr> BodyGenTemplates;
 
 class BodyTemplateList : public std::vector<BodyGenTemplatePtr>
 {
@@ -323,7 +323,7 @@ public:
 };
 typedef std::shared_ptr<BodyGenDataTemplates> BodyGenDataTemplatesPtr;
 
-typedef std::unordered_map<TESNPC*, BodyGenDataTemplatesPtr> BodyGenData;
+typedef absl::flat_hash_map<TESNPC*, BodyGenDataTemplatesPtr> BodyGenData;
 
 struct MorphShapeCallbackItem
 {
@@ -342,7 +342,7 @@ struct MorphShapeCallbackItem
 	};
 };
 
-class MorphShapeCallbacks : public SafeDataHolder<std::set<MorphShapeCallbackItem, MorphShapeCallbackItem::Comp>>
+class MorphShapeCallbacks : public SafeDataHolder<absl::btree_set<MorphShapeCallbackItem, MorphShapeCallbackItem::Comp>>
 {
 public:
 	void AddCallback(IBodyMorphInterface::MorphShapeCallback cb, skee_u64 order = 0);
@@ -370,7 +370,7 @@ public:
 
 	virtual void VisitMorphValues(TESObjectREFR * actor, MorphValueVisitor & visitor) override
 	{
-		Impl_VisitMorphs(actor, [&](SKEEFixedString key, std::unordered_map<StringTableItem, float> * map)
+		Impl_VisitMorphs(actor, [&](SKEEFixedString key, absl::flat_hash_map<StringTableItem, float> * map)
 		{
 			for (auto & item : *map)
 			{
@@ -379,7 +379,7 @@ public:
 		});
 	}
 
-	virtual void VisitMorphs(TESObjectREFR * actor, MorphVisitor & visitor) override { Impl_VisitMorphs(actor, [&](SKEEFixedString key, std::unordered_map<StringTableItem, float> * map) { visitor.Visit(actor, key.c_str()); }); }
+	virtual void VisitMorphs(TESObjectREFR * actor, MorphVisitor & visitor) override { Impl_VisitMorphs(actor, [&](SKEEFixedString key, absl::flat_hash_map<StringTableItem, float> * map) { visitor.Visit(actor, key.c_str()); }); }
 	virtual void VisitKeys(TESObjectREFR * actor, const char * name, MorphKeyVisitor & visitor) override { Impl_VisitKeys(actor, name, [&](SKEEFixedString key, float value) { visitor.Visit(key.c_str(), value); }); }
 
 	virtual void ClearMorphs(TESObjectREFR * actor) override { Impl_ClearMorphs(actor); }
@@ -411,8 +411,8 @@ public:
 	void ForEachMorphShapeCallback(std::function<void(IBodyMorphInterface::MorphShapeCallback)> func);
 
 private:
-	void GetFilteredNPCList(std::vector<TESNPC*> activeNPCs[], const ModInfo * modInfo, UInt32 gender, TESRace * raceFilter, std::unordered_set<TESFaction*> factionList);
-	bool IsNPCInFactions(TESNPC* npc, std::unordered_set<TESFaction*> factionList);
+	void GetFilteredNPCList(std::vector<TESNPC*> activeNPCs[], const ModInfo * modInfo, UInt32 gender, TESRace * raceFilter, absl::flat_hash_set<TESFaction*> factionList);
+	bool IsNPCInFactions(TESNPC* npc, absl::flat_hash_set<TESFaction*> factionList);
 
 	void Impl_SetMorph(TESObjectREFR * actor, SKEEFixedString morphName, SKEEFixedString morphKey, float relative);
 	float Impl_GetMorph(TESObjectREFR * actor, SKEEFixedString morphName, SKEEFixedString morphKey);
@@ -421,7 +421,7 @@ private:
 	float Impl_GetBodyMorphs(TESObjectREFR * actor, SKEEFixedString morphName);
 	void Impl_ClearBodyMorphNames(TESObjectREFR * actor, SKEEFixedString morphName);
 
-	void Impl_VisitMorphs(TESObjectREFR * actor, std::function<void(SKEEFixedString, std::unordered_map<StringTableItem, float> *)> functor);
+	void Impl_VisitMorphs(TESObjectREFR * actor, std::function<void(SKEEFixedString, absl::flat_hash_map<StringTableItem, float> *)> functor);
 	void Impl_VisitKeys(TESObjectREFR * actor, SKEEFixedString name, std::function<void(SKEEFixedString, float)> functor);
 
 	void Impl_ClearMorphs(TESObjectREFR * actor);

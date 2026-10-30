@@ -29,7 +29,7 @@ public:
 		CDXTextureRenderer::TextureType textureType = CDXTextureRenderer::TextureType::Mask;
 	};
 
-	bool ApplyMasksToTexture(CDXD3DDevice* device, NiPointer<NiTexture> texture, std::map<SInt32, MaskData> & masks, const BSFixedString & name, NiPointer<NiTexture> & output);
+	bool ApplyMasksToTexture(CDXD3DDevice* device, NiPointer<NiTexture> texture, absl::btree_map<SInt32, MaskData> & masks, const BSFixedString & name, NiPointer<NiTexture> & output);
 
 private:
 	std::vector<NiPointer<NiTexture>> m_textures;

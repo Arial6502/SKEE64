@@ -135,7 +135,7 @@ TESRace * GetRaceByName(std::string & raceName)
 }
 
 // Keyed by the string pool pointer, which is what BSFixedString compares. Read from job threads, only built at data load.
-static std::unordered_map<const char *, BGSHeadPart *> s_headPartsByName;
+static absl::flat_hash_map<const char *, BGSHeadPart *> s_headPartsByName;
 static UInt32 s_indexedHeadParts = 0;
 
 void BuildHeadPartIndex()
@@ -250,7 +250,7 @@ TESForm * GetFormFromIdentifier(const std::string & formIdentifier)
 
 void VisitLeveledCharacter(TESLevCharacter * character, std::function<void(TESNPC*)> functor)
 {
-	std::unordered_set<TESLevCharacter*> visited;
+	absl::flat_hash_set<TESLevCharacter*> visited;
 	std::queue<TESLevCharacter*> visit;
 
 	visit.push(character);
