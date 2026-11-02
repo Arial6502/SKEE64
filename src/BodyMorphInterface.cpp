@@ -529,7 +529,6 @@ struct MorphJob
 	NiPointer<NiSkinPartition>		partition;
 	NiPointer<NiBinaryExtraData>	bodyData;
 	const BodyMorphMap *			morphs = nullptr;
-	bool							isAttaching = false;
 
 	UInt8 *				block = nullptr;
 	UInt32				blockSize = 0;
@@ -601,8 +600,8 @@ struct MorphJob
 				active.push_back({ it->second.first.get(), morphs->HasUV() ? it->second.second.get() : nullptr, factor.second });
 		}
 
-		// Nothing to apply, and nothing to undo on the old shape
-		const bool existingMorphs = !isAttaching && bodyData;
+		// SHAPEDATA holds the shape as it was before any morph, the vertex block may already be morphed even on attach
+		const bool existingMorphs = bodyData && bodyData->m_size == blockSize;
 		if (active.empty() && !existingMorphs)
 			return;
 
@@ -696,7 +695,8 @@ void MorphFileCache::CollectJobs(NiAVObject * rootNode, bool isAttaching, std::v
 		job.partition = skinPartition;
 		job.bodyData = (NiBinaryExtraData*)NifUtils::GetExtraData(geometry, "SHAPEDATA");
 		job.morphs = &morphs;
-		job.isAttaching = isAttaching;
+		if (isAttaching && job.bodyData)
+			_MESSAGE("%s - %s was attached again with its morphs already applied", __FUNCTION__, geometry->m_name ? geometry->m_name : "");
 		job.blockSize = skinPartition->vertexCount * skinPartition->GetVertexSize(skinPartition->m_pkPartitions[0].vertexDesc);
 		jobs.push_back(std::move(job));
 	};
