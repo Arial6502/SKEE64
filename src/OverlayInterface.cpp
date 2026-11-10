@@ -27,6 +27,7 @@
 #include "MainThreadTasks.h"
 
 #include <unordered_set>
+#include <chrono>
 #include <format>
 
 // NiAVObject::Flag, only named by SKSE 2.3 and later
@@ -60,6 +61,7 @@ extern UInt16	g_overlayAlphaThreshold;
 extern bool		g_overlayForceDecal;
 extern bool		g_legacyOverlayOrder;
 extern bool		g_hideUnusedOverlays;
+extern bool		g_logOverlayTiming;
 
 extern bool		g_immediateArmor;
 
@@ -458,29 +460,32 @@ void OverlayInterface::ResetOverlay(const char * nodeName, TESObjectREFR * refr,
 					defaultValue.SetFloat(OverrideVariant::kParam_ShaderLightingEffect2, -1, 2.0);
 					SetShaderProperty(foundGeometry, &defaultValue, true);*/
 
-					// Copy the remaining textures
-					if(!textureSet)
+					// Copy the remaining textures, reloading only the slots whose path changes. Releasing and reloading the
+					// whole set made every revert pay for textures that were already in place.
+					const auto start = std::chrono::steady_clock::now();
+					BSTextureSet * skinTextures = textureSet ? &textureSet->textureSet : (BSTextureSet *)sourceMaterial->textureSet;
+					BSTextureSet * targetTextures = targetMaterial->textureSet;
+					const std::string defaultTexture = resetDiffuse ? GetDefaultTexture() : std::string();
+					UInt32 changedPaths = 0;
+					bool changedTextures = false;
+					for (UInt32 i = resetDiffuse ? 0 : 1; i < BSTextureSet::kNumTextures; i++)
 					{
-						if (resetDiffuse)
-							targetMaterial->textureSet->SetTexturePath(0, BSFixedString(GetDefaultTexture().c_str()));
+						const char * texturePath = i == 0 ? defaultTexture.c_str() : skinTextures->GetTexturePath(i);
+						if (IsSameTexturePath(targetTextures->GetTexturePath(i), texturePath))
+							continue;
 
-						for(UInt32 i = 1; i < BSTextureSet::kNumTextures; i++)
-						{
-							const char * texturePath = sourceMaterial->textureSet->GetTexturePath(i);
-							targetMaterial->textureSet->SetTexturePath(i, texturePath);
-						}
+						targetTextures->SetTexturePath(i, texturePath);
+						changedTextures |= LoadMaterialTexture(targetMaterial, i, texturePath);
+						changedPaths++;
 					}
-					else
-					{
-						if (resetDiffuse)
-							targetMaterial->textureSet->SetTexturePath(0, BSFixedString(GetDefaultTexture().c_str()));
 
-						for(UInt32 i = 1; i < BSTextureSet::kNumTextures; i++)
-							targetMaterial->textureSet->SetTexturePath(i, textureSet->textureSet.GetTexturePath(i));
-					}
-					targetMaterial->ReleaseTextures();
-					CALL_MEMBER_FN(shaderProperty, InvalidateTextures)(0);
-					CALL_MEMBER_FN(shaderProperty, InitializeShader)(foundGeometry);
+					if (changedTextures)
+						CALL_MEMBER_FN(shaderProperty, InitializeShader)(foundGeometry);
+					if (changedPaths)
+						QueueVisibilityUpdate(foundGeometry);
+
+					if (g_logOverlayTiming)
+						_MESSAGE("%s - %s: %u paths changed, %.3f ms", __FUNCTION__, nodeName, changedPaths, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
 				}
 			}
 		}
@@ -531,6 +536,18 @@ SKSETaskRevertOverlay::SKSETaskRevertOverlay(TESObjectREFR * refr, BSFixedString
 
 void SKSETaskRevertOverlay::Run()
 {
+	const auto start = std::chrono::steady_clock::now();
+	struct LogTime
+	{
+		const std::chrono::steady_clock::time_point & start;
+		const char * node;
+		~LogTime()
+		{
+			if (g_logOverlayTiming)
+				_MESSAGE("SKSETaskRevertOverlay::Run - %s: %.3f ms", node, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+		}
+	} logTime{ start, m_nodeName.data };
+
 	TESForm * form = LookupFormByID(m_formId);
 	TESObjectREFR * reference = DYNAMIC_CAST(form, TESForm, TESObjectREFR);
 	if (reference && g_overlayInterface.HasOverlays(reference))

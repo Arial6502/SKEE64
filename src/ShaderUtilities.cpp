@@ -14,9 +14,13 @@
 
 #include <regex>
 #include <algorithm>
+#include <chrono>
+#include <mutex>
+#include <ppltasks.h>
 
 extern SKSETaskInterface				* g_task;
 extern bool								g_transformCollisionFix;
+extern bool								g_logOverlayTiming;
 extern OverlayInterface					g_overlayInterface;
 
 // NiUpdateData::Flag::kDisableCollision, SKSE only names kDirty
@@ -151,55 +155,98 @@ void GetShaderProperty(NiAVObject * node, OverrideVariant * value)
 	}
 }
 
+bool IsSameTexturePath(const char * a, const char * b)
+{
+	return _stricmp(a ? a : "", b ? b : "") == 0;
+}
+
+// Loads a slot as BSShaderTextureSet::SetTexture does. On a cache miss this reads the file on the calling thread,
+// an empty path leaves the slot empty for InitializeShader to fill with the default
+static void LoadSlotTexture(const char * path, UInt32 index, NiPointer<NiTexture> & texture)
+{
+	if (path && path[0])
+		LoadTexture(path, 1, texture, index == 4);
+}
+
+bool LoadMaterialTexture(BSLightingShaderMaterial * material, UInt32 index, const char * path)
+{
+	NiTexturePtr * slot = GetTextureFromIndex(material, index);
+	if (!slot)
+		return false;
+
+	NiPointer<NiTexture> texture;
+	LoadSlotTexture(path, index, texture);
+	if ((NiTexture *)*slot == (NiTexture *)texture)
+		return false;
+
+	*slot = texture;
+	return true;
+}
+
+void NIOVTaskUpdateTexture::Queue(NiPointer<BSGeometry> geometry, UInt32 index, StringTableItem texture)
+{
+	static std::mutex lock;
+	static concurrency::task<void> loads = concurrency::task_from_result();
+
+	// Made here so the worker never holds the last reference to the geometry
+	NIOVTaskUpdateTexture * task = new NIOVTaskUpdateTexture(geometry, index, texture);
+
+	// One load at a time, so the textures land in the order they were asked for
+	std::lock_guard<std::mutex> guard(lock);
+	loads = loads.then([task]()
+	{
+		LoadSlotTexture(task->m_texture->c_str(), task->m_index, task->m_loaded);
+		task->m_preloaded = true;
+		MainThreadTasks::Add(task);
+	});
+}
+
 void NIOVTaskUpdateTexture::Run()
 {
-	if(m_geometry)
+	if (!m_geometry || m_index >= BSTextureSet::kNumTextures)
+		return;
+
+	BSShaderProperty * shaderProperty = niptr_cast<BSShaderProperty>(m_geometry->m_spEffectState);
+	if(!shaderProperty) {
+		_MESSAGE("Shader does not exist for %s", m_geometry->m_name);
+		return;
+	}
+
+	BSLightingShaderProperty * lightingShader = ni_cast(shaderProperty, BSLightingShaderProperty);
+	if (!lightingShader)
+		return;
+
+	const auto start = std::chrono::steady_clock::now();
+	BSLightingShaderMaterial * material = (BSLightingShaderMaterial *)shaderProperty->material;
+	const char * path = m_texture->c_str();
+	if (!m_preloaded)
+		LoadSlotTexture(path, m_index, m_loaded);
+	const auto loaded = std::chrono::steady_clock::now();
+
+	// Only the one slot changes, the rest of the material is left as it is
+	NiTexturePtr * slot = GetTextureFromIndex(material, m_index);
+	const bool unchanged = IsSameTexturePath(material->textureSet->GetTexturePath(m_index), path) && (!slot || (NiTexture *)*slot == (NiTexture *)m_loaded);
+	if (!unchanged)
 	{
-		BSShaderProperty * shaderProperty = niptr_cast<BSShaderProperty>(m_geometry->m_spEffectState);
-		if(!shaderProperty) {
-			_MESSAGE("Shader does not exist for %s", m_geometry->m_name);
-			return;
-		}
+		// A fresh set, the current one may be shared with other shapes
+		BSShaderTextureSet * newTextureSet = BSShaderTextureSet::Create();
+		for (UInt32 i = 0; i < BSTextureSet::kNumTextures; i++)
+			newTextureSet->SetTexturePath(i, material->textureSet->GetTexturePath(i));
+		newTextureSet->SetTexturePath(m_index, path);
+		material->SetTextureSet(newTextureSet);
 
-		BSLightingShaderProperty * lightingShader = ni_cast(shaderProperty, BSLightingShaderProperty);
-		if(lightingShader)
-		{
-			BSLightingShaderMaterial * material = (BSLightingShaderMaterial *)shaderProperty->material;
-			if(m_index < BSTextureSet::kNumTextures) {
-				// Need to update the texture path of the BSTextureSet
-				BSShaderTextureSet * newTextureSet = BSShaderTextureSet::Create();
-				for (UInt32 i = 0; i < BSTextureSet::kNumTextures; i++)
-				{
-					newTextureSet->SetTexturePath(i, material->textureSet->GetTexturePath(i));
-				}
-				newTextureSet->SetTexturePath(m_index, m_texture->AsBSFixedString().c_str());
-				material->SetTextureSet(newTextureSet);
+		if (slot)
+			*slot = m_loaded;
 
-				// Load the texture requested and then assign it to the material
-				NiPointer<NiTexture> newTexture;
-				LoadTexture(m_texture->c_str(), 1, newTexture, false);
+		CALL_MEMBER_FN(lightingShader, InitializeShader)(m_geometry);
+		g_overlayInterface.QueueVisibilityUpdate(m_geometry);
+	}
 
-				NiTexturePtr * targetTexture = GetTextureFromIndex(material, m_index);
-				if (targetTexture) {
-					*targetTexture = newTexture;
-				}
-
-				CALL_MEMBER_FN(lightingShader, InitializeShader)(m_geometry);
-#if 0
-				BSShaderTextureSet * newTextureSet = BSShaderTextureSet::Create();
-				for(UInt32 i = 0; i < BSTextureSet::kNumTextures; i++)
-				{
-					const char * texturePath = material->textureSet->GetTexturePath(i);
-					newTextureSet->SetTexturePath(i, texturePath);
-				}
-				newTextureSet->SetTexturePath(m_index, m_texture->AsBSFixedString().c_str());
-				material->ReleaseTextures();
-				material->SetTextureSet(newTextureSet);
-				CALL_MEMBER_FN(lightingShader, InvalidateTextures)(0);
-				CALL_MEMBER_FN(lightingShader, InitializeShader)(m_geometry);
-#endif
-			}
-		}
+	if (g_logOverlayTiming)
+	{
+		const auto milliseconds = [](auto from, auto to) { return std::chrono::duration<double, std::milli>(to - from).count(); };
+		_MESSAGE("%s - %s slot %u: %s, %s, load %.3f ms, apply %.3f ms", __FUNCTION__, m_geometry->m_name, m_index, path,
+			unchanged ? "unchanged" : (m_preloaded ? "loaded off thread" : "loaded inline"), milliseconds(start, loaded), milliseconds(loaded, std::chrono::steady_clock::now()));
 	}
 }
 
@@ -312,7 +359,7 @@ static void ApplyShaderProperty(NiAVObject * node, OverrideVariant * value, bool
 							NIOVTaskUpdateTexture(geometry, value->index, g_stringTable.GetString(texture)).Run();
 						}
 						else {
-							MainThreadTasks::Add(new NIOVTaskUpdateTexture(geometry, value->index, g_stringTable.GetString(texture)));
+							NIOVTaskUpdateTexture::Queue(geometry, value->index, g_stringTable.GetString(texture));
 						}
 
 					}

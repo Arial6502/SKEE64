@@ -21,9 +21,14 @@ public:
 	virtual void Run();
 	virtual void Dispose() { delete this; }
 
+	// Loads the texture on a worker thread, then swaps it in on the main thread
+	static void Queue(NiPointer<BSGeometry> geometry, UInt32 index, StringTableItem texture);
+
 	NiPointer<BSGeometry> m_geometry;
 	UInt32			m_index;
 	StringTableItem	m_texture;
+	NiPointer<NiTexture> m_loaded;
+	bool			m_preloaded = false;
 };
 
 class NIOVTaskUpdateWorldData : public TaskDelegate
@@ -60,7 +65,8 @@ public:
 
 	virtual void Run()
 	{
-		SetShaderProperty(m_object, &m_variant, true);
+		// A deferred texture is read from disk off the main thread, every other key applies now
+		SetShaderProperty(m_object, &m_variant, m_variant.key != OverrideVariant::kParam_ShaderTexture);
 	}
 
 	virtual void Dispose() { delete this; }
@@ -73,5 +79,11 @@ protected:
 
 SKEEFixedString GetSanitizedPath(const SKEEFixedString & path);
 NiTexturePtr * GetTextureFromIndex(BSLightingShaderMaterial* material, UInt32 index);
+
+bool IsSameTexturePath(const char * a, const char * b);
+
+// Points one texture slot of the material at path, loading only that texture. Returns whether the slot changed,
+// the caller then calls InitializeShader once to fill empty slots with defaults
+bool LoadMaterialTexture(BSLightingShaderMaterial * material, UInt32 index, const char * path);
 
 void DumpNodeChildren(NiAVObject * node);

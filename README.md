@@ -61,6 +61,12 @@ Nothing changes for actors without body morphs. Hair and eyes are left alone, an
 - Containers moved to abseil (`flat_hash_map`, `node_hash_map`, `btree_map` and the matching sets).
 - JSON parsing moved from jsoncpp to glaze. A repair pass keeps old presets loading, including malformed numbers like `3.5.0` and legacy code page text. Parsing all test presets went from 125 ms to 52 ms.
 
+### Overlay textures
+
+- Reverting an overlay reloads only the texture slots whose path changes, instead of releasing and reloading the whole set. Reverting an overlay that is already reverted does nothing.
+- Setting a texture skips the work when the slot already shows it. With `immediate` off, the texture is read from disk on a worker thread and swapped in on the main thread, so a texture that isn't loaded yet no longer stalls the frame. With `immediate` on it still loads on the calling thread.
+- `bLogOverlayTiming` logs how long each texture set and revert took.
+
 ### Other
 
 - Compatibility with [my fork](https://github.com/Arial6502/ArmorUnlimited) of naitro2010's ArmorUnlimited, so morphs and overlays reach armor on its extra biped slots.
@@ -77,6 +83,7 @@ New keys in `skee64.ini`:
 | `Features` | `bMainThreadTransforms` | 1 | Runs node transform updates on the main thread |
 | `Features` | `bTransformCollisionFix` | 1 | Updates world data without collision before transforms |
 | `General` | `bLogMorphTiming` | 0 | Logs the timing of each morph batch |
+| `General` | `bLogOverlayTiming` | 0 | Logs the timing of each overlay texture set and revert |
 | `General` | `bMorphCollision` | 1 | Pushes morphed armor back out of the morphed skin |
 | `General` | `fMorphCollisionDistance` | 4.0 | How far from the skin armor can be and still get pushed |
 | `General` | `fMorphCollisionClearance` | 0.5 | The gap left between pushed armor and the skin |

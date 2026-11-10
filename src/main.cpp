@@ -156,6 +156,7 @@ UInt16	g_bodyMorphMode = 0;
 bool	g_bodyMorphGPUCopy = true;
 bool	g_bodyMorphRebind = true;
 bool	g_logMorphTiming = false;
+bool	g_logOverlayTiming = false;
 bool	g_morphCollision = true;
 float	g_morphCollisionDistance = 4.0f;
 float	g_morphCollisionClearance = 0.5f;
@@ -832,6 +833,7 @@ __declspec(dllexport) bool SKSEPlugin_Load(const SKSEInterface * skse)
 	SKEE64GetConfigValue("General", "bBodyMorphGPUCopy", &g_bodyMorphGPUCopy);
 	SKEE64GetConfigValue("General", "bBodyMorphRebind", &g_bodyMorphRebind);
 	SKEE64GetConfigValue("General", "bLogMorphTiming", &g_logMorphTiming);
+	SKEE64GetConfigValue("General", "bLogOverlayTiming", &g_logOverlayTiming);
 	SKEE64GetConfigValue("General", "bMorphCollision", &g_morphCollision);
 	SKEE64GetConfigValue("General", "fMorphCollisionDistance", &g_morphCollisionDistance);
 	SKEE64GetConfigValue("General", "fMorphCollisionClearance", &g_morphCollisionClearance);
