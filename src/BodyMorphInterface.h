@@ -10,6 +10,7 @@
 
 #include "StringTable.h"
 #include "MorphKernel.h"
+#include "MorphCollision.h"
 
 #ifdef min
 #undef min
@@ -270,6 +271,9 @@ private:
 	size_t memoryLimit;
 	size_t totalMemory;
 	std::vector<UInt8> m_vertexBlocks;
+
+	// Morph maps without morphs, by shape name, for armor no TRI covers, which conform alone fits to the body
+	absl::node_hash_map<SKEEFixedString, BodyMorphMap> m_conformOnly;
 };
 
 class NIOVTaskUpdateModelWeight : public TaskDelegate

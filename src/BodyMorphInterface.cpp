@@ -10,6 +10,13 @@
 #include "NifUtils.h"
 
 #include <algorithm>
+#include <condition_variable>
+#include <deque>
+#include <filesystem>
+#include <iterator>
+#include <map>
+#include <thread>
+#include <unordered_set>
 #include <string>
 #include <limits>
 #include <cctype>
@@ -48,6 +55,16 @@ extern bool								g_enableBodyNormalRecalculate;
 extern bool								g_bodyMorphGPUCopy;
 extern bool								g_bodyMorphRebind;
 extern bool								g_logMorphTiming;
+extern bool								g_morphCollision;
+extern float							g_morphCollisionDistance;
+extern float							g_morphCollisionClearance;
+extern bool								g_morphConform;
+extern bool								g_morphConformWithoutTRI;
+extern float							g_morphConformDistance;
+extern float							g_morphConformMismatch;
+extern bool								g_morphFitDiskCache;
+extern UInt64							g_morphFitDiskLimit;
+extern UInt64							g_morphFitMemoryLimit;
 
 skee_u32 BodyMorphInterface::GetVersion()
 {
@@ -519,6 +536,565 @@ const MorphKernel::Topology * BodyMorphMap::GetTopology(const UInt8 * vertices, 
 	return m_topologies->meshes.back().get();
 }
 
+static bool FitsArmor()
+{
+	return g_morphCollision || g_morphConform;
+}
+
+// The sliders of a TRI by name for the fit threads. They hold its deltas, so a TRI dropped from the cache meanwhile stays
+// alive for them.
+static MorphCollision::FitTRI FitTRIOf(const BodyMorphMap * morphs, UInt32 vertexCount)
+{
+	MorphCollision::FitTRI tri;
+	std::vector<TriShapeVertexDataPtr> deltas;
+	if (morphs)
+	{
+		for (const auto & [name, data] : *morphs)
+		{
+			if (data.first)
+			{
+				tri.names.push_back(name.c_str());
+				deltas.push_back(data.first);
+			}
+		}
+	}
+
+	tri.delta = [deltas = std::move(deltas), vertexCount](uint32_t slider, float * out)
+	{
+		deltas[slider]->ApplyMorphRaw(UInt16(vertexCount), out, 1.0f);
+	};
+	return tri;
+}
+
+// Which sliders a TRI has and how many vertices each moves, in whatever order the map holds them. Part of what an overlay
+// is kept under.
+static uint64_t TRISignature(const BodyMorphMap * morphs)
+{
+	uint64_t signature = 0;
+	if (!morphs)
+		return signature;
+
+	for (const auto & [name, data] : *morphs)
+	{
+		uint64_t entry = 0xCBF29CE484222325ull;
+		for (const char * c = name.c_str(); *c; ++c)
+			entry = (entry ^ UInt8(std::tolower(UInt8(*c)))) * 0x100000001B3ull;
+
+		const uint64_t size = data.first ? data.first->GetSize() + 1 : 0;
+		signature += MorphCollision::Hash(&size, sizeof(size), entry);
+	}
+	return signature;
+}
+
+// A skin shape of the actor, which armor on the same skeleton is fitted to
+struct CollisionTarget
+{
+	struct Snapshot
+	{
+		std::once_flag									once;
+		std::shared_ptr<const MorphCollision::FitSkin>	skin;
+	};
+
+	NiPointer<BSGeometry>					geometry;
+	NiPointer<NiSkinPartition>				partition;
+	NiAVObject *							skeleton;
+	const NiTransform *						rootParentToSkin;
+	MorphCollision::Mesh					rest;
+	MorphCollision::Mesh					morphed;	// As this update leaves it, armor is pushed out of it
+	std::vector<MorphKernel::TriangleRun>	triangles;
+	const BodyMorphMap *					morphs;		// Null for skin no TRI covers, which never moves
+	uint64_t								key;		// The rest shape and the TRI, part of what an overlay is kept under
+	std::shared_ptr<Snapshot>				snapshot = std::make_shared<Snapshot>();
+
+	// Copies for the fit threads, made once in a run and only when some overlay is missing sliders
+	std::shared_ptr<const MorphCollision::FitSkin> Skin() const
+	{
+		std::call_once(snapshot->once, [this]()
+		{
+			auto skin = std::make_shared<MorphCollision::FitSkin>();
+			skin->rest = MorphCollision::Positions(rest);
+			for (const auto & run : triangles)
+				skin->triangles.insert(skin->triangles.end(), run.indices, run.indices + run.count * 3);
+			skin->tri = FitTRIOf(morphs, rest.vertexCount);
+			snapshot->skin = std::move(skin);
+		});
+		return snapshot->skin;
+	}
+};
+
+static UInt32 ShaderType(BSGeometry * geometry)
+{
+	BSShaderProperty * shaderProperty = niptr_cast<BSShaderProperty>(geometry->m_spEffectState);
+	if (!shaderProperty || !ni_is_type(shaderProperty->GetRTTI(), BSLightingShaderProperty))
+		return UINT32_MAX;
+
+	BSLightingShaderMaterial * material = (BSLightingShaderMaterial*)shaderProperty->material;
+	return material ? material->GetShaderType() : UINT32_MAX;
+}
+
+static bool IsSkin(BSGeometry * geometry)
+{
+	return ShaderType(geometry) == BSLightingShaderMaterial::kShaderType_FaceGenRGBTint;
+}
+
+// Hair and eyes sit close to the skin without being worn on it
+static bool ConformsWithoutTRI(BSGeometry * geometry)
+{
+	switch (ShaderType(geometry))
+	{
+	case BSLightingShaderMaterial::kShaderType_FaceGen:
+	case BSLightingShaderMaterial::kShaderType_FaceGenRGBTint:
+	case BSLightingShaderMaterial::kShaderType_HairTint:
+	case BSLightingShaderMaterial::kShaderType_Eye:
+		return false;
+	default:
+		return geometry->m_spSkinInstance && !ni_cast(geometry, BSDynamicTriShape);
+	}
+}
+
+static bool ContainsSkin(NiAVObject * object)
+{
+	return VisitGeometry(object, [](BSGeometry * geometry) { return IsSkin(geometry); });
+}
+
+// Fitting reads positions straight out of the partition's vertex block. Skinned partitions always hold float positions,
+// without VF_FULLPREC being set, while dynamic shapes keep theirs elsewhere.
+static bool HasPartitionPositions(BSGeometry * geometry)
+{
+	return ni_cast(geometry, BSTriShape) && !ni_cast(geometry, BSDynamicTriShape);
+}
+
+static void AddCollisionTarget(std::vector<CollisionTarget> & targets, BSGeometry * geometry, const UInt8 * morphed, const BodyMorphMap * morphs)
+{
+	NiPointer<NiSkinInstance> skinInstance = niptr_cast<NiSkinInstance>(geometry->m_spSkinInstance);
+	if (!skinInstance || !skinInstance->m_spSkinData)
+		return;
+
+	NiPointer<NiSkinPartition> partition = niptr_cast<NiSkinPartition>(skinInstance->m_spSkinPartition);
+	if (!partition || !partition->m_uiPartitions || !HasPartitionPositions(geometry))
+		return;
+
+	auto & firstPartition = partition->m_pkPartitions[0];
+	const UInt32 stride = NiSkinPartition::GetVertexSize(firstPartition.vertexDesc);
+	const UInt32 vertexCount = partition->vertexCount;
+
+	NiBinaryExtraData * bodyData = (NiBinaryExtraData*)NifUtils::GetExtraData(geometry, "SHAPEDATA");
+	const UInt8 * rest = bodyData && bodyData->m_size == stride * vertexCount ? reinterpret_cast<const UInt8*>(bodyData->m_data) : firstPartition.shapeData->m_RawVertexData;
+	const MorphCollision::Mesh restMesh = { rest, vertexCount, stride };
+
+	CollisionTarget target = { geometry, partition, skinInstance->m_pkRootParent, &skinInstance->m_spSkinData->m_kRootParentToSkin,
+		restMesh, { morphed ? morphed : firstPartition.shapeData->m_RawVertexData, vertexCount, stride } };
+	target.morphs = morphs;
+	const uint64_t signature = TRISignature(morphs);
+	target.key = MorphCollision::Hash(&signature, sizeof(signature), MorphCollision::Fingerprint(restMesh));
+	for (UInt32 p = 0; p < partition->m_uiPartitions; ++p)
+	{
+		target.triangles.push_back({ partition->m_pkPartitions[p].m_pusTriList, partition->m_pkPartitions[p].m_usTriangles });
+		target.key = MorphCollision::Hash(&partition->m_pkPartitions[p].m_usTriangles, sizeof(UInt16), target.key);
+	}
+
+	targets.push_back(std::move(target));
+}
+
+// Exported meshes often carry -0 where the body has 0, so the transforms can't be compared bytewise
+static bool SameTransform(const NiTransform & a, const NiTransform & b)
+{
+	const float * x = reinterpret_cast<const float*>(&a);
+	const float * y = reinterpret_cast<const float*>(&b);
+	for (size_t i = 0; i < sizeof(NiTransform) / sizeof(float); ++i)
+	{
+		if (std::fabs(x[i] - y[i]) > 1e-4f)
+			return false;
+	}
+	return true;
+}
+
+// Every shape of armor gets an overlay per skin it sits on, generated morphs that fill in sliders its TRI lacks and correct
+// ones it has out of date, made on threads of their own below the game's priority and apart from the morph workers.
+// An overlay only looks at sliders actors use and grows as they use more. It doesn't depend on the sliders' values, so
+// it's applied in every update like a TRI, and kept in memory and on disk for later sessions.
+class OverlayService
+{
+public:
+	static OverlayService & Get()
+	{
+		static OverlayService * service = new OverlayService(); // Never destroyed, its threads run until the game exits
+		return *service;
+	}
+
+	// The overlay kept under key, from memory or from the disk, null if none was made yet
+	std::shared_ptr<const MorphCollision::FitMorphs> Find(uint64_t key, uint32_t vertexCount)
+	{
+		std::unique_lock<std::mutex> lock(m_lock);
+		if (auto it = m_overlays.find(key); it != m_overlays.end())
+		{
+			it->second.used = ++m_clock;
+			return it->second.overlay;
+		}
+
+		if (!m_onDisk.count(key))
+			return nullptr;
+		lock.unlock();
+
+		auto overlay = MorphCollision::FitMorphs::Deserialize(MorphCollision::ReadFile(File(key)), vertexCount);
+
+		lock.lock();
+		if (!overlay)
+		{
+			m_onDisk.erase(key);
+			return nullptr;
+		}
+
+		Store(key, overlay);
+		return overlay;
+	}
+
+	// The shape waits on key from now. True when the caller should submit the sliders it's missing, false when some are
+	// already on their way, the shape asks again after.
+	bool Claim(uint64_t key, UInt32 formId, uint64_t shape)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		const Waiter waiter = { formId, shape };
+		auto [latest, fresh] = m_latest.try_emplace(shape, key);
+		if (!fresh)
+		{
+			if (latest->second == key)
+				return !m_jobs.count(key) && m_jobs.insert(key).second;
+			Unwait(latest->second, waiter);
+			latest->second = key;
+		}
+
+		m_waiters[key].push_back(waiter);
+		++m_pending[formId];
+		return m_jobs.insert(key).second;
+	}
+
+	void Submit(uint64_t key, MorphCollision::FitInput && input)
+	{
+		{
+			std::lock_guard<std::mutex> guard(m_lock);
+			m_queue.push_back({ key, std::move(input) });
+		}
+		m_ready.notify_one();
+	}
+
+	size_t ByteSize()
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		return m_bytes + m_bindings.ByteSize();
+	}
+
+	// Refits held back since last asked, a few on a busy load are expected
+	UInt32 TakeHeldBack()
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		return std::exchange(m_heldBack, 0);
+	}
+
+	// What waits to be made is still made
+	void Clear()
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		m_overlays.clear();
+		m_bytes = 0;
+		m_bindings.Clear();
+	}
+
+private:
+	struct Waiter
+	{
+		UInt32		formId;
+		uint64_t	shape;
+
+		bool operator==(const Waiter & rhs) const = default;
+	};
+
+	struct Job
+	{
+		uint64_t					key;
+		MorphCollision::FitInput	input;
+	};
+
+	struct Entry
+	{
+		std::shared_ptr<const MorphCollision::FitMorphs>	overlay;
+		uint64_t											used = 0;
+	};
+
+	OverlayService()
+	{
+		m_settings = { g_morphConform, g_morphConformMismatch, 0.01f };
+
+		// Next to the plugin, in a folder named after it
+		wchar_t runtime[MAX_PATH];
+		const DWORD length = GetModuleFileNameW(nullptr, runtime, MAX_PATH);
+		if (g_morphFitDiskCache && length && length < MAX_PATH)
+			m_folder = std::filesystem::path(runtime).parent_path() / L"Data" / L"SKSE" / L"Plugins" / L"SKEE" / L"Overlays";
+
+		m_bindings.Configure({ g_morphCollision ? g_morphCollisionDistance : 0.0f, g_morphConform ? g_morphConformDistance : 0.0f }, g_morphFitMemoryLimit);
+
+		const unsigned threads = (std::clamp)(std::thread::hardware_concurrency() / 4, 1u, 4u);
+		for (unsigned i = 0; i < threads; ++i)
+		{
+			std::thread([this]()
+			{
+				SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+				Work();
+			}).detach();
+		}
+
+		if (!m_folder.empty())
+		{
+			std::thread([this]()
+			{
+				SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST);
+				Sweep();
+			}).detach();
+		}
+	}
+
+	std::filesystem::path File(uint64_t key) const
+	{
+		return m_folder / MorphCollision::FileName(key);
+	}
+
+	// Drops the oldest overlays past the disk limit, then lists the ones earlier sessions left
+	void Sweep()
+	{
+		std::error_code error;
+		std::vector<std::tuple<std::filesystem::file_time_type, uintmax_t, std::filesystem::path>> files;
+		uintmax_t total = 0;
+		for (std::filesystem::directory_iterator it(m_folder, error), end; !error && it != end; it.increment(error))
+		{
+			if (it->path().extension() == L".tmp")
+			{
+				std::filesystem::remove(it->path(), error);
+				continue;
+			}
+
+			const uintmax_t size = it->file_size(error);
+			const auto time = it->last_write_time(error);
+			if (!error)
+			{
+				files.emplace_back(time, size, it->path());
+				total += size;
+			}
+		}
+
+		std::sort(files.begin(), files.end());
+		std::vector<uint64_t> keys;
+		for (const auto & [time, size, path] : files)
+		{
+			if (total > g_morphFitDiskLimit && std::filesystem::remove(path, error))
+			{
+				total -= size;
+				continue;
+			}
+
+			const std::wstring stem = path.stem().wstring();
+			if (path.extension() == L".bin" && stem.size() == 16)
+				keys.push_back(std::wcstoull(stem.c_str(), nullptr, 16));
+		}
+
+		std::lock_guard<std::mutex> guard(m_lock);
+		m_onDisk.insert(keys.begin(), keys.end());
+	}
+
+	void Work()
+	{
+		for (;;)
+		{
+			Job job;
+			std::shared_ptr<const MorphCollision::FitMorphs> base;
+			bool wanted;
+			{
+				std::unique_lock<std::mutex> lock(m_lock);
+				m_ready.wait(lock, [this]() { return !m_queue.empty(); });
+				job = std::move(m_queue.front());
+				m_queue.pop_front();
+
+				auto it = m_waiters.find(job.key);
+				wanted = it != m_waiters.end() && !it->second.empty();
+				if (auto stored = m_overlays.find(job.key); stored != m_overlays.end())
+					base = stored->second.overlay;
+			}
+
+			const uint32_t vertexCount = uint32_t(job.input.armorRest.size() / 3);
+			if (wanted && !base && !m_folder.empty())
+				base = MorphCollision::FitMorphs::Deserialize(MorphCollision::ReadFile(File(job.key)), vertexCount);
+
+			std::shared_ptr<const MorphCollision::FitMorphs> overlay;
+			if (wanted)
+			{
+				// Sliders that failed are taken as looked at with nothing to add, so they aren't asked for in a loop
+				MorphCollision::FitMorphs added;
+				try
+				{
+					added = MorphCollision::Fit(job.input, m_bindings, m_settings);
+				}
+				catch (...)
+				{
+					added = {};
+					added.vertexCount = vertexCount;
+					added.looked = job.input.wanted;
+					std::sort(added.looked.begin(), added.looked.end(), [](const std::string & a, const std::string & b) { return MorphCollision::CompareNames(a.c_str(), b.c_str()) < 0; });
+					added.looked.erase(std::unique(added.looked.begin(), added.looked.end(), [](const std::string & a, const std::string & b) { return MorphCollision::CompareNames(a.c_str(), b.c_str()) == 0; }), added.looked.end());
+					if (base)
+						added.skins = base->skins;
+				}
+
+				auto merged = std::make_shared<MorphCollision::FitMorphs>(base ? MorphCollision::FitMorphs::Merge(*base, std::move(added)) : std::move(added));
+				if (!m_folder.empty() && MorphCollision::WriteFile(File(job.key), merged->Serialize()))
+				{
+					std::lock_guard<std::mutex> guard(m_lock);
+					m_onDisk.insert(job.key);
+				}
+				overlay = std::move(merged);
+			}
+			job.input = {};
+
+			std::vector<UInt32> refits;
+			{
+				std::lock_guard<std::mutex> guard(m_lock);
+				m_jobs.erase(job.key);
+				if (overlay)
+					Store(job.key, overlay);
+
+				std::vector<Waiter> waiters;
+				if (auto it = m_waiters.find(job.key); it != m_waiters.end())
+				{
+					waiters = std::move(it->second);
+					m_waiters.erase(it);
+				}
+
+				for (const auto & waiter : waiters)
+				{
+					if (auto latest = m_latest.find(waiter.shape); latest != m_latest.end() && latest->second == job.key)
+						m_latest.erase(latest);
+					if (overlay)
+						m_refit.insert(waiter.formId);
+					if (Done(waiter.formId) && Allowed(waiter.formId))
+						refits.push_back(waiter.formId);
+				}
+			}
+
+			for (UInt32 formId : refits)
+				Refit(formId);
+		}
+	}
+
+	// Under the lock. True when the actor waits on nothing more and has overlays to show.
+	bool Done(UInt32 formId)
+	{
+		auto pending = m_pending.find(formId);
+		if (pending == m_pending.end() || --pending->second > 0)
+			return false;
+
+		m_pending.erase(pending);
+		return m_refit.erase(formId) > 0;
+	}
+
+	// Under the lock
+	void Unwait(uint64_t key, const Waiter & waiter)
+	{
+		auto it = m_waiters.find(key);
+		if (it == m_waiters.end())
+			return;
+
+		auto & waiters = it->second;
+		auto found = std::find(waiters.begin(), waiters.end(), waiter);
+		if (found == waiters.end())
+			return;
+
+		waiters.erase(found);
+
+		// Nobody waits on it anymore, its copies are let go of now rather than when a thread gets to it
+		if (waiters.empty())
+		{
+			m_waiters.erase(it);
+			auto queued = std::find_if(m_queue.begin(), m_queue.end(), [key](const Job & job) { return job.key == key; });
+			if (queued != m_queue.end())
+			{
+				m_queue.erase(queued);
+				m_jobs.erase(key);
+			}
+		}
+
+		if (Done(waiter.formId) && Allowed(waiter.formId))
+			Refit(waiter.formId);
+	}
+
+	// Under the lock. Overlays that keep growing would morph the actor again after each, so an actor gets a few refits in
+	// a short while and then waits.
+	bool Allowed(UInt32 formId)
+	{
+		const ULONGLONG now = GetTickCount64();
+		auto & window = m_refits[formId];
+		if (now - window.first > 10000)
+			window = { now, 0 };
+		if (++window.second <= 8)
+			return true;
+
+		// The first one held back still happens, once the window is over
+		if (window.second == 9)
+			Refit(formId, UInt32(10000 - (now - window.first)));
+
+		++m_heldBack;
+		return false;
+	}
+
+	static void Refit(UInt32 formId, UInt32 delay = 0)
+	{
+		auto refit = [formId]()
+		{
+			TESForm * form = LookupFormByID(formId);
+			if (TESObjectREFR * refr = form ? DYNAMIC_CAST(form, TESForm, TESObjectREFR) : nullptr)
+				g_bodyMorphInterface.ApplyBodyMorphs(refr, false);
+		};
+
+		if (delay)
+			MainThreadTasks::AddDelayed(delay, refit);
+		else
+			MainThreadTasks::AddCoalesced(MainThreadTasks::Kind::UpdateMorphs, formId, nullptr, refit);
+	}
+
+	// Under the lock
+	void Store(uint64_t key, std::shared_ptr<const MorphCollision::FitMorphs> overlay)
+	{
+		auto [it, inserted] = m_overlays.try_emplace(key);
+		if (!inserted)
+			m_bytes -= it->second.overlay->ByteSize();
+		it->second = { std::move(overlay), ++m_clock };
+		m_bytes += it->second.overlay->ByteSize();
+
+		while (m_bytes > g_morphFitMemoryLimit && m_overlays.size() > 1)
+		{
+			auto oldest = std::min_element(m_overlays.begin(), m_overlays.end(), [](const auto & a, const auto & b) { return a.second.used < b.second.used; });
+			m_bytes -= oldest->second.overlay->ByteSize();
+			m_overlays.erase(oldest);
+		}
+	}
+
+	MorphCollision::FitSettings		m_settings;
+	std::filesystem::path			m_folder;
+	MorphCollision::BindingCache	m_bindings;
+
+	std::mutex													m_lock;
+	std::condition_variable										m_ready;
+	std::deque<Job>												m_queue;
+	std::unordered_map<uint64_t, Entry>							m_overlays;
+	size_t														m_bytes = 0;
+	uint64_t													m_clock = 0;
+	std::unordered_set<uint64_t>								m_onDisk;
+	std::unordered_set<uint64_t>								m_jobs;		// Queued or being made
+	std::unordered_map<uint64_t, std::vector<Waiter>>			m_waiters;
+	std::unordered_map<uint64_t, uint64_t>						m_latest;	// What each shape waits on
+	std::unordered_map<UInt32, UInt32>							m_pending;	// How many overlays each actor waits on
+	std::unordered_set<UInt32>									m_refit;	// Actors with overlays grown since their last pass
+	std::unordered_map<UInt32, std::pair<ULONGLONG, UInt32>>	m_refits;	// When each actor's refit window began, and how many
+	UInt32														m_heldBack = 0;
+};
+
 // One shape of an actor, collected and published on the main thread. Compute can run anywhere because it only
 // writes to its own block, which keeps everything the game reads whole until Publish swaps it in.
 struct MorphJob
@@ -534,6 +1110,10 @@ struct MorphJob
 	UInt32				blockSize = 0;
 	NiSkinPartition *	copy = nullptr;	// DeepCopy started refcount at 1
 	bool				computed = false;
+	bool				reference = false;	// Skin only read to fit armor to, it already carries the morphs
+	UInt32				conformed = 0;
+	UInt32				pushed = 0;
+	bool				overlayRequested = false;
 
 	// A clone of a model shares its partition with the model and all the other clones. Once copied it is held
 	// by the skin instance alone, and can be written over from then on rather than copied again.
@@ -583,7 +1163,7 @@ struct MorphJob
 		return morphs->GetTopology(block, vertexCount, { vertexSize, 16, 20, 24 }, triangles, lockedVertices);
 	}
 
-	void Compute(const MorphFactors & factors)
+	void Compute(const MorphFactors & factors, uint64_t settingsKey, const std::vector<CollisionTarget> & targets, UInt32 formId)
 	{
 		struct ActiveMorph
 		{
@@ -602,13 +1182,82 @@ struct MorphJob
 
 		// SHAPEDATA holds the shape as it was before any morph, the vertex block may already be morphed even on attach
 		const bool existingMorphs = bodyData && bodyData->m_size == blockSize;
-		if (active.empty() && !existingMorphs)
+		// Without body morphs the skin is at rest, and so is anything fitted to it
+		const bool fits = !targets.empty() && !factors.empty() && !IsSkin(geometry) && skinInstance->m_spSkinData && HasPartitionPositions(geometry);
+		if (active.empty() && !existingMorphs && !fits)
 			return;
 
 		auto & firstPartition = partition->m_pkPartitions[0];
 		memcpy(block, existingMorphs ? reinterpret_cast<UInt8*>(bodyData->m_data) : firstPartition.shapeData->m_RawVertexData, blockSize);
 
 		const MorphKernel::Topology * topology = g_enableBodyNormalRecalculate ? FindTopology() : nullptr;
+
+		// The overlay of this shape for the skin it sits on, kept under the meshes and TRIs. Sliders it hasn't looked at yet
+		// are looked at on the overlay threads, until then the shape goes without them.
+		const UInt32 stride = NiSkinPartition::GetVertexSize(firstPartition.vertexDesc);
+		const UInt32 vertexCount = partition->vertexCount;
+		std::shared_ptr<const MorphCollision::FitMorphs> overlay;
+		std::vector<const CollisionTarget*> matched;
+		if (fits)
+		{
+			for (auto & target : targets)
+			{
+				if (target.skeleton == skinInstance->m_pkRootParent && SameTransform(*target.rootParentToSkin, skinInstance->m_spSkinData->m_kRootParentToSkin))
+					matched.push_back(&target);
+			}
+
+			// Skin comes in a different order when armor attaches than when the whole actor updates
+			std::sort(matched.begin(), matched.end(), [](const CollisionTarget * a, const CollisionTarget * b) { return a->key < b->key; });
+			matched.erase(std::unique(matched.begin(), matched.end(), [](const CollisionTarget * a, const CollisionTarget * b) { return a->key == b->key; }), matched.end());
+		}
+
+		if (!matched.empty())
+		{
+			const uint64_t armorPrint = MorphCollision::Fingerprint({ block, vertexCount, stride });
+			uint64_t key = MorphCollision::Hash(&settingsKey, sizeof(settingsKey), armorPrint);
+			const uint64_t signature = TRISignature(morphs);
+			key = MorphCollision::Hash(&signature, sizeof(signature), key);
+			for (UInt32 p = 0; p < partition->m_uiPartitions; ++p)
+				key = MorphCollision::Hash(&partition->m_pkPartitions[p].m_usTriangles, sizeof(UInt16), key);
+			for (auto target : matched)
+				key = MorphCollision::Hash(&target->key, sizeof(target->key), key);
+
+			overlay = OverlayService::Get().Find(key, vertexCount);
+			if (overlay && overlay->skins.size() != matched.size())
+				overlay = nullptr;
+
+			// Both in name order
+			static const std::vector<std::string> none;
+			const auto & lookedAt = overlay ? overlay->looked : none;
+			std::vector<std::string> wanted;
+			auto looked = lookedAt.begin();
+			for (const auto & factor : factors)
+			{
+				while (looked != lookedAt.end() && MorphCollision::CompareNames(looked->c_str(), factor.first->c_str()) < 0)
+					++looked;
+				if (looked == lookedAt.end() || MorphCollision::CompareNames(looked->c_str(), factor.first->c_str()) != 0)
+					wanted.push_back(factor.first->c_str());
+			}
+
+			// The shape is told apart by its actor and its mesh, the game reuses the objects
+			const uint64_t shape = MorphCollision::Hash(&formId, sizeof(formId), armorPrint);
+			if (!wanted.empty() && OverlayService::Get().Claim(key, formId, shape))
+			{
+				MorphCollision::FitInput request;
+				request.armorRest = MorphCollision::Positions({ block, vertexCount, stride });
+				for (UInt32 p = 0; p < partition->m_uiPartitions; ++p)
+				{
+					auto & run = partition->m_pkPartitions[p];
+					request.armorTriangles.insert(request.armorTriangles.end(), run.m_pusTriList, run.m_pusTriList + run.m_usTriangles * 3);
+				}
+				request.armorTRI = FitTRIOf(morphs, vertexCount);
+				for (auto target : matched)
+					request.skins.push_back(target->Skin());
+				request.wanted = std::move(wanted);
+				OverlayService::Get().Submit(key, std::move(request));
+				overlayRequested = true;
+			}
+		}
 
 		TriShapeVertexData::Layout layout;
 		layout.vertexDesc = firstPartition.shapeData->m_VertexDesc;
@@ -621,6 +1270,32 @@ struct MorphJob
 			if (morph.uvs)
 				morph.uvs->ApplyMorph(partition->vertexCount, &layout, morph.factor);
 		}
+
+		// The overlay's morphs on top of the shape's own, at the same values, both in name order
+		if (overlay)
+		{
+			auto slider = overlay->sliders.begin();
+			for (const auto & factor : factors)
+			{
+				while (slider != overlay->sliders.end() && MorphCollision::CompareNames(slider->name.c_str(), factor.first->c_str()) < 0)
+					++slider;
+				if (slider != overlay->sliders.end() && MorphCollision::CompareNames(slider->name.c_str(), factor.first->c_str()) == 0)
+				{
+					slider->Apply(block, stride, factor.second);
+					++conformed;
+				}
+			}
+
+			if (g_morphCollision)
+			{
+				for (size_t k = 0; k < matched.size(); ++k)
+					pushed += overlay->skins[k].Resolve(matched[k]->morphed, block, stride, g_morphCollisionClearance);
+			}
+		}
+
+		// Nothing morphed or fitted, the shape stays as it is
+		if (active.empty() && !existingMorphs && !conformed && !pushed)
+			return;
 
 		if (topology)
 		{
@@ -669,38 +1344,38 @@ struct MorphJob
 	}
 };
 
+static void AddJob(std::vector<MorphJob> & jobs, NiAVObject * rootNode, BSGeometry * geometry, const BodyMorphMap & morphs, bool isAttaching)
+{
+	// Armor covering several biped slots comes up once per slot
+	for (auto & job : jobs)
+	{
+		if (job.geometry.get() == geometry)
+			return;
+	}
+
+	NiPointer<NiSkinInstance> skinInstance = niptr_cast<NiSkinInstance>(geometry->m_spSkinInstance);
+	if (!skinInstance)
+		return;
+
+	NiPointer<NiSkinPartition> skinPartition = niptr_cast<NiSkinPartition>(skinInstance->m_spSkinPartition);
+	if (!skinPartition || !skinPartition->m_uiPartitions)
+		return;
+
+	MorphJob job;
+	job.rootNode = rootNode;
+	job.geometry = geometry;
+	job.skinInstance = skinInstance;
+	job.partition = skinPartition;
+	job.bodyData = (NiBinaryExtraData*)NifUtils::GetExtraData(geometry, "SHAPEDATA");
+	job.morphs = &morphs;
+	if (isAttaching && job.bodyData)
+		_MESSAGE("%s - %s was attached again with its morphs already applied", __FUNCTION__, geometry->m_name ? geometry->m_name : "");
+	job.blockSize = skinPartition->vertexCount * skinPartition->GetVertexSize(skinPartition->m_pkPartitions[0].vertexDesc);
+	jobs.push_back(std::move(job));
+}
+
 void MorphFileCache::CollectJobs(NiAVObject * rootNode, bool isAttaching, std::vector<MorphJob> & jobs)
 {
-	auto addJob = [&](BSGeometry * geometry, const BodyMorphMap & morphs)
-	{
-		// Armor covering several biped slots comes up once per slot
-		for (auto & job : jobs)
-		{
-			if (job.geometry.get() == geometry)
-				return;
-		}
-
-		NiPointer<NiSkinInstance> skinInstance = niptr_cast<NiSkinInstance>(geometry->m_spSkinInstance);
-		if (!skinInstance)
-			return;
-
-		NiPointer<NiSkinPartition> skinPartition = niptr_cast<NiSkinPartition>(skinInstance->m_spSkinPartition);
-		if (!skinPartition || !skinPartition->m_uiPartitions)
-			return;
-
-		MorphJob job;
-		job.rootNode = rootNode;
-		job.geometry = geometry;
-		job.skinInstance = skinInstance;
-		job.partition = skinPartition;
-		job.bodyData = (NiBinaryExtraData*)NifUtils::GetExtraData(geometry, "SHAPEDATA");
-		job.morphs = &morphs;
-		if (isAttaching && job.bodyData)
-			_MESSAGE("%s - %s was attached again with its morphs already applied", __FUNCTION__, geometry->m_name ? geometry->m_name : "");
-		job.blockSize = skinPartition->vertexCount * skinPartition->GetVertexSize(skinPartition->m_pkPartitions[0].vertexDesc);
-		jobs.push_back(std::move(job));
-	};
-
 	auto findMorphs = [&](BSGeometry * geometry)
 	{
 		return vertexMap.find(SKEEFixedString(geometry->m_name ? geometry->m_name : ""));
@@ -710,7 +1385,7 @@ void MorphFileCache::CollectJobs(NiAVObject * rootNode, bool isAttaching, std::v
 	{
 		// The root is the one shape there is, whatever its name
 		auto it = findMorphs(geometry);
-		addJob(geometry, it != vertexMap.end() ? it->second : vertexMap.begin()->second);
+		AddJob(jobs, rootNode, geometry, it != vertexMap.end() ? it->second : vertexMap.begin()->second, isAttaching);
 		return;
 	}
 
@@ -720,7 +1395,7 @@ void MorphFileCache::CollectJobs(NiAVObject * rootNode, bool isAttaching, std::v
 		{
 			auto it = findMorphs(geometry);
 			if (it != vertexMap.end())
-				addJob(geometry, it->second);
+				AddJob(jobs, rootNode, geometry, it->second, isAttaching);
 		}
 		return false;
 	});
@@ -780,6 +1455,42 @@ void MorphCache::CollectJobs(NiAVObject * rootNode, bool isAttaching, std::vecto
 
 	if (fileCache && !fileCache->vertexMap.empty())
 		fileCache->CollectJobs(rootNode, isAttaching, jobs);
+
+	// Shapes no TRI covers get morph maps without morphs, so every slider counts as missing and conform fits them
+	if (g_morphConform && g_morphConformWithoutTRI)
+	{
+		VisitGeometry(rootNode, [&](BSGeometry * geometry)
+		{
+			if (!IsSkin(geometry) && ConformsWithoutTRI(geometry))
+				AddJob(jobs, rootNode, geometry, m_conformOnly[SKEEFixedString(geometry->m_name ? geometry->m_name : "")], isAttaching);
+			return false;
+		});
+	}
+}
+
+static std::vector<CollisionTarget> CollectCollisionTargets(TESObjectREFR * refr, const std::vector<MorphJob> & jobs)
+{
+	std::vector<CollisionTarget> targets;
+	absl::flat_hash_set<BSGeometry*> seen;
+
+	for (auto & job : jobs)
+	{
+		if (IsSkin(job.geometry) && seen.insert(job.geometry).second)
+			AddCollisionTarget(targets, job.geometry, job.computed ? job.block : nullptr, job.morphs);
+	}
+
+	// Skin left out of this run has no TRI, so it never moves
+	VisitBipedNodes(refr, [&](bool isFirstPerson, UInt32 bipedIndex, NiNode * rootNode, TESForm * armo, TESForm * arma, NiAVObject * object)
+	{
+		VisitGeometry(object, [&](BSGeometry * geometry)
+		{
+			if (IsSkin(geometry) && seen.insert(geometry).second)
+				AddCollisionTarget(targets, geometry, nullptr, nullptr);
+			return false;
+		});
+	});
+
+	return targets;
 }
 
 void MorphCache::RunJobs(TESObjectREFR * refr, std::vector<MorphJob> & jobs, std::chrono::steady_clock::time_point start)
@@ -804,20 +1515,48 @@ void MorphCache::RunJobs(TESObjectREFR * refr, std::vector<MorphJob> & jobs, std
 		block += job.blockSize;
 	}
 
-	const MorphFactors factors = g_bodyMorphInterface.GetMorphFactors(refr);
+	// In name order, as overlays keep their sliders, so the two can be walked together
+	MorphFactors factors = g_bodyMorphInterface.GetMorphFactors(refr);
+	std::sort(factors.begin(), factors.end(), [](const auto & a, const auto & b) { return MorphCollision::CompareNames(a.first->c_str(), b.first->c_str()) < 0; });
 
-	if (g_parallelMorphing)
-		concurrency::parallel_for(size_t(0), jobs.size(), [&](size_t i) { jobs[i].Compute(factors); });
-	else
-		for (auto & job : jobs)
-			job.Compute(factors);
+	// Overlays are kept under the settings they were made with, along with the meshes and TRIs
+	const float settings[] = { float(g_morphConform), float(g_morphCollision), g_morphCollisionDistance, g_morphConformDistance, g_morphConformMismatch };
+	const uint64_t settingsKey = MorphCollision::Hash(settings, sizeof(settings));
+
+	auto compute = [&](const std::vector<MorphJob*> & batch, const std::vector<CollisionTarget> & targets)
+	{
+		if (g_parallelMorphing)
+			concurrency::parallel_for(size_t(0), batch.size(), [&](size_t i) { batch[i]->Compute(factors, settingsKey, targets, refr->formID); });
+		else
+			for (auto job : batch)
+				job->Compute(factors, settingsKey, targets, refr->formID);
+	};
+
+	// Skin is morphed first, armor is pushed out of it as this update leaves it
+	std::vector<MorphJob*> skin, others;
+	for (auto & job : jobs)
+	{
+		if (!job.reference)
+			(FitsArmor() && IsSkin(job.geometry) ? skin : others).push_back(&job);
+	}
+
+	compute(skin, {});
+
+	std::vector<CollisionTarget> targets;
+	if (FitsArmor())
+		targets = CollectCollisionTargets(refr, jobs);
+
+	compute(others, targets);
 
 	const auto computed = std::chrono::steady_clock::now();
 
-	UInt32 copies = 0;
+	UInt32 copies = 0, conformed = 0, pushed = 0, requested = 0;
 	for (auto & job : jobs)
 	{
 		copies += job.copy ? 1 : 0;
+		requested += job.overlayRequested ? 1 : 0;
+		conformed += job.conformed;
+		pushed += job.pushed;
 		job.Publish(refr);
 	}
 
@@ -826,7 +1565,8 @@ void MorphCache::RunJobs(TESObjectREFR * refr, std::vector<MorphJob> & jobs, std
 	if (g_logMorphTiming)
 	{
 		const auto milliseconds = [](auto from, auto to) { return std::chrono::duration<double, std::milli>(to - from).count(); };
-		_MESSAGE("%s - %08X: %u shapes, %u copied, %u factors, collect %.3f ms, compute %.3f ms, publish %.3f ms", __FUNCTION__, refr->formID, (UInt32)jobs.size(), copies, (UInt32)factors.size(),
+		_MESSAGE("%s - %08X: %u shapes, %u copied, %u factors, %u skin targets, %u overlay sliders applied, %u vertices pushed, %u overlays grown, %u refits held back, overlays %zu KB, collect %.3f ms, compute %.3f ms, publish %.3f ms", __FUNCTION__, refr->formID,
+			(UInt32)jobs.size(), copies, (UInt32)factors.size(), (UInt32)targets.size(), conformed, pushed, requested, FitsArmor() ? OverlayService::Get().TakeHeldBack() : 0, FitsArmor() ? OverlayService::Get().ByteSize() / 1024 : 0,
 			milliseconds(start, collected), milliseconds(collected, computed), milliseconds(computed, std::chrono::steady_clock::now()));
 	}
 }
@@ -839,9 +1579,34 @@ void MorphCache::ApplyMorphsNow(TESObjectREFR * refr, NiAVObject * rootNode, boo
 
 	std::vector<MorphJob> jobs;
 	CollectJobs(rootNode, isAttaching, jobs);
+	const bool attachedSkin = std::any_of(jobs.begin(), jobs.end(), [](const MorphJob & job) { return IsSkin(job.geometry); });
+
+	// Armor is fitted to the skin elsewhere on the actor, which is only read: it was morphed when it attached or the
+	// morphs last changed, and this run needs its TRI for the sliders armor lacks
+	if (FitsArmor())
+	{
+		const size_t attached = jobs.size();
+		VisitBipedNodes(refr, [&](bool isFirstPerson, UInt32 bipedIndex, NiNode * root, TESForm * armo, TESForm * arma, NiAVObject * object)
+		{
+			if (object != rootNode && ContainsSkin(object))
+				CollectJobs(object, false, jobs);
+		});
+
+		jobs.erase(std::remove_if(jobs.begin() + attached, jobs.end(), [](const MorphJob & job) { return !IsSkin(job.geometry); }), jobs.end());
+		for (size_t i = attached; i < jobs.size(); ++i)
+		{
+			jobs[i].reference = true;
+			jobs[i].blockSize = 0;
+		}
+	}
+
 	RunJobs(refr, jobs, start);
 
 	Shrink();
+
+	// Armor already on the actor was fitted to the skin as it was before
+	if (FitsArmor() && attachedSkin)
+		UpdateMorphs(refr, true);
 }
 
 void MorphCache::UpdateMorphs(TESObjectREFR * refr, bool deferUpdate)
@@ -933,6 +1698,13 @@ void MorphCache::Shrink()
 
 	if (m_data.size() == 0) // Just in case we erased but messed up
 		totalMemory = sizeof(MorphCache);
+
+	// ponytail: drops every topology of armor without a TRI past a count, they rebuild in a few milliseconds each
+	size_t topologies = 0;
+	for (auto & [name, morphs] : m_conformOnly)
+		topologies += morphs.m_topologies->meshes.size();
+	if (topologies > 64)
+		m_conformOnly.clear();
 }
 
 size_t MorphCache::Clear()
@@ -941,6 +1713,8 @@ size_t MorphCache::Clear()
 	size_t usage = totalMemory;
 	totalMemory = 0;
 	m_data.clear();
+	m_conformOnly.clear();
+	OverlayService::Get().Clear();
 	return usage;
 }
 

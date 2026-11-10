@@ -156,6 +156,16 @@ UInt16	g_bodyMorphMode = 0;
 bool	g_bodyMorphGPUCopy = true;
 bool	g_bodyMorphRebind = true;
 bool	g_logMorphTiming = false;
+bool	g_morphCollision = true;
+float	g_morphCollisionDistance = 4.0f;
+float	g_morphCollisionClearance = 0.5f;
+bool	g_morphConform = true;
+bool	g_morphConformWithoutTRI = false;
+float	g_morphConformDistance = 10.0f;
+float	g_morphConformMismatch = 0.5f;
+UInt64	g_morphFitMemoryLimit = 16ull * 1024 * 1024 * 1024;
+bool	g_morphFitDiskCache = true;
+UInt64	g_morphFitDiskLimit = 4ull * 1024 * 1024 * 1024;
 
 bool	g_externalHeads = false;
 bool	g_extendedMorphs = true;
@@ -822,6 +832,16 @@ __declspec(dllexport) bool SKSEPlugin_Load(const SKSEInterface * skse)
 	SKEE64GetConfigValue("General", "bBodyMorphGPUCopy", &g_bodyMorphGPUCopy);
 	SKEE64GetConfigValue("General", "bBodyMorphRebind", &g_bodyMorphRebind);
 	SKEE64GetConfigValue("General", "bLogMorphTiming", &g_logMorphTiming);
+	SKEE64GetConfigValue("General", "bMorphCollision", &g_morphCollision);
+	SKEE64GetConfigValue("General", "fMorphCollisionDistance", &g_morphCollisionDistance);
+	SKEE64GetConfigValue("General", "fMorphCollisionClearance", &g_morphCollisionClearance);
+	SKEE64GetConfigValue("General", "bMorphConform", &g_morphConform);
+	SKEE64GetConfigValue("General", "bMorphConformWithoutTRI", &g_morphConformWithoutTRI);
+	SKEE64GetConfigValue("General", "fMorphConformDistance", &g_morphConformDistance);
+	SKEE64GetConfigValue("General", "fMorphConformMismatch", &g_morphConformMismatch);
+	SKEE64GetConfigValue("General", "uMorphFitMemoryLimit", &g_morphFitMemoryLimit);
+	SKEE64GetConfigValue("General", "bMorphFitDiskCache", &g_morphFitDiskCache);
+	SKEE64GetConfigValue("General", "uMorphFitDiskLimit", &g_morphFitDiskLimit);
 
 	UInt64 bodyMorphMemoryLimit = 256000000;
 	if (SKEE64GetConfigValue("General", "uBodyMorphMemoryLimit", &bodyMorphMemoryLimit))

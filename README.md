@@ -44,6 +44,18 @@ The "before" column leaves out the skin partition copy and GPU buffers the old c
 
 Shapes that get attached again with their morphs already applied are now rebuilt from their stored original. Before, races like MuErinRace doubled body morphs after loading a save.
 
+Armor is fitted to the morphed body at runtime, the way BodySlide's conform would, without rebuilding outfits. Each shape of armor gets an overlay for the body it sits on, like an extra TRI:
+
+- It fills in sliders the body's TRI has and the armor's lacks, from the weighted movement of the closest skin vertices, like Outfit Studio's conform. Armor without any TRI gets every slider. Sliders are matched by name, and one the armor's TRI has but that moves it differently from the skin under it is treated as out of date and corrected near the skin. Small loose pieces such as chain links and buckles move as one, so they keep their shape.
+- It only holds sliders that actors use and that move the skin under that piece. A slider an actor uses for the first time on a piece is looked at on threads of their own at low priority, apart from the morph workers, and added to the overlay. Until then the piece goes without it.
+- It doesn't depend on the sliders' values, so it's applied in every morph update at whatever values the actor has, like the armor's own TRI. Mods that change sliders every frame cost no more than they do without fitting.
+
+Anything that still sinks under the skin, from stacked or extreme sliders, is pushed back out in every update.
+
+Overlays are kept per armor mesh, body mesh and actor weight, and saved in `Data\SKSE\Plugins\SKEE\Overlays`, which Mod Organizer puts in its overwrite folder. Later sessions read them back in the update that needs them. The oldest are removed at startup once the folder passes its limit.
+
+Nothing changes for actors without body morphs. Hair and eyes are left alone, and clipping during animation is unchanged.
+
 ### Containers and JSON
 
 - Containers moved to abseil (`flat_hash_map`, `node_hash_map`, `btree_map` and the matching sets).
@@ -65,6 +77,16 @@ New keys in `skee64.ini`:
 | `Features` | `bMainThreadTransforms` | 1 | Runs node transform updates on the main thread |
 | `Features` | `bTransformCollisionFix` | 1 | Updates world data without collision before transforms |
 | `General` | `bLogMorphTiming` | 0 | Logs the timing of each morph batch |
+| `General` | `bMorphCollision` | 1 | Pushes morphed armor back out of the morphed skin |
+| `General` | `fMorphCollisionDistance` | 4.0 | How far from the skin armor can be and still get pushed |
+| `General` | `fMorphCollisionClearance` | 0.5 | The gap left between pushed armor and the skin |
+| `General` | `bMorphConform` | 1 | Gives armor overlays for sliders its TRI lacks or has out of date |
+| `General` | `bMorphConformWithoutTRI` | 0 | Also fits armor that has no TRI at all |
+| `General` | `fMorphConformDistance` | 10.0 | Armor follows the skin fully up to half this distance and not at all past it |
+| `General` | `fMorphConformMismatch` | 0.5 | How far a TRI slider may stray from the skin, relative to the skin's movement, before it counts as out of date. 0 turns this off |
+| `General` | `uMorphFitMemoryLimit` | 17179869184 | Bytes kept in memory for overlays, and for the bindings they're made from, the least recently used go first |
+| `General` | `bMorphFitDiskCache` | 1 | Saves overlays for later sessions |
+| `General` | `uMorphFitDiskLimit` | 4294967296 | Bytes of saved overlays, the oldest are removed at startup past this |
 
 ## Building
 
