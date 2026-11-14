@@ -1439,8 +1439,9 @@ void MorphCache::CollectJobs(NiAVObject * rootNode, bool isAttaching, std::vecto
 
 	// Find the BODYTRI and cache it
 	VisitObjects(rootNode, [&](NiAVObject* object) {
+		// An empty string in a mesh is a null pointer here
 		NiStringExtraData * stringData = ni_cast(NifUtils::GetExtraData(object, "BODYTRI"), NiStringExtraData);
-		if (stringData) {
+		if (stringData && stringData->m_pString && *stringData->m_pString) {
 			SKEEFixedString filePath = CreateTRIPath(stringData->m_pString);
 			CacheFile(filePath.c_str());
 			auto it = m_data.find(filePath);
@@ -1672,7 +1673,7 @@ void MorphCache::ForEachMorphFile(std::function<void(const SKEEFixedString&, con
 
 SKEEFixedString MorphCache::CreateTRIPath(const char * relativePath)
 {
-	if(relativePath == "")
+	if (!relativePath || !*relativePath)
 		return SKEEFixedString("");
 
 	std::string targetPath = "meshes\\";
@@ -1720,9 +1721,10 @@ size_t MorphCache::Clear()
 
 bool MorphCache::CacheFile(const char * relativePath)
 {
-	SKEEFixedString filePath(relativePath);
-	if(relativePath == "")
+	if (!relativePath || !*relativePath)
 		return false;
+
+	SKEEFixedString filePath(relativePath);
 
 	auto it = m_data.find(filePath);
 	if (it != m_data.end()) {
